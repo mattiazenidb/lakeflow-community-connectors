@@ -1,0 +1,18 @@
+{
+    "total_load": {
+        "date_from": "01/03/2025",
+        "date_to": "07/03/2025"
+    },
+    "actual_generation": {
+        "date_from": "01/03/2025",
+        "date_to": "07/03/2025"
+    },
+    "renewable_generation": {
+        "date_from": "01/03/2025",
+        "date_to": "07/03/2025"
+    },
+    "physical_foreign_flow": {
+        "date_from": "01/03/2025",
+        "date_to": "07/03/2025"
+    }
+}
