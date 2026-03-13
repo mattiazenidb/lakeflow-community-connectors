@@ -5,6 +5,7 @@ from the Terna Public API. Uses OAuth 2.0 Client Credentials; optional
 x_api_key for the Physical Foreign Flow (transmission) endpoint.
 """
 
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
@@ -18,6 +19,8 @@ from databricks.labs.community_connector.sources.terna.terna_schemas import (
     TABLE_METADATA,
     TABLE_SCHEMAS,
 )
+
+logger = logging.getLogger(__name__)
 
 # Token endpoint path (relative to base_url)
 TOKEN_PATH = "/public-api/access-token"
@@ -238,10 +241,11 @@ class TernaLakeflowConnect(LakeflowConnect):
         """
         Compute the next date chunk (from_date, to_date) in UTC.
         Returns (None, None) if no more data (cursor already at or past end).
-        dateFrom is mandatory; dateTo is optional. When dateTo is omitted (CDC mode),
+        dateFrom is mandatory; dateTo is optional. When         dateTo is omitted (CDC mode),
         each run fetches from the last cursor to current execution time (multiple 60-day
         API calls if needed). When dateTo is set, range is bounded and range_end is used on resume.
         """
+        logger.info("start_offset=%s", start_offset)
         cursor = (start_offset or {}).get("cursor") if start_offset else None
         cursor_dt = self._parse_cursor(cursor)
         range_end_str = (start_offset or {}).get("range_end") if start_offset else None
