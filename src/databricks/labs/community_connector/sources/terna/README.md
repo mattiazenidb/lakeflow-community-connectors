@@ -97,7 +97,7 @@ Optional table options (must be listed in the connection’s `externalOptionsAll
 |---------------|---------------------------|----------|-------------|
 | `date_from`   | All                       | Yes*     | Range start, format `dd/mm/yyyy`. *Required for the intended contract; if omitted, connector falls back to last 30 days before yesterday. |
 | `date_to`     | All                       | No       | Range end, format `dd/mm/yyyy`. Optional; when omitted, the connector uses **current execution time** as the end. |
-| `chunk_days`  | All                       | No       | Number of days per API request chunk (integer, minimum 1, max 60). Default: 1. Ranges longer than 60 days are split into multiple API calls. |
+| `chunk_days`  | All                       | No       | Number of days per API request chunk (integer, minimum 1, max 60). **Default: 60 when `date_to` is omitted (CDC)** so each run fetches up to 60 days of new data; default 1 when `date_to` is set. Ranges longer than 60 days are split into multiple API calls. |
 | `biddingZone` or `bidding_zone` | `total_load` only | No | Bidding zone filter. Allowed values: `North`, `Centre-North`, `South`, `Centre-South`, `Sardinia`, `Sicily`, `Calabria`, `Italy`. |
 | `type`        | `actual_generation`, `renewable_generation` | No | Primary source / energy source filter. Allowed (e.g.): `Thermal`, `Wind`, `Geothermal`, `Photovoltaic`, `Self-consumption`, `Hydro`. |
 
