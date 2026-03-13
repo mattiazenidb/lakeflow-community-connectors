@@ -253,7 +253,7 @@ class TernaLakeflowConnect(LakeflowConnect):
             or table_options.get("dateto")
         )
 
-        # CDC (no date_to): default 60 days per chunk so each run catches up to "now" quickly
+        # Default 60 days per chunk so each run fetches from offset to dateTo/now in 60-day API calls
         chunk_key = (
             table_options.get("chunk_days")
             or table_options.get("chunkdays")
@@ -262,9 +262,9 @@ class TernaLakeflowConnect(LakeflowConnect):
             try:
                 chunk_days = max(1, int(chunk_key))
             except (TypeError, ValueError):
-                chunk_days = TERNA_MAX_DAYS_PER_REQUEST if not date_to_opt else 1
+                chunk_days = TERNA_MAX_DAYS_PER_REQUEST
         else:
-            chunk_days = TERNA_MAX_DAYS_PER_REQUEST if not date_to_opt else 1
+            chunk_days = TERNA_MAX_DAYS_PER_REQUEST
         chunk_days = min(chunk_days, TERNA_MAX_DAYS_PER_REQUEST)
 
         now = datetime.now(timezone.utc)
