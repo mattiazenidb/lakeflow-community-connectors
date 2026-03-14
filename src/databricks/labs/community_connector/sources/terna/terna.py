@@ -67,7 +67,6 @@ class TernaLakeflowConnect(LakeflowConnect):
         self._client_id = client_id
         self._client_secret = client_secret
         self._base_url = (options.get("base_url") or DEFAULT_BASE_URL).rstrip("/")
-        self._x_api_key = options.get("x_api_key") or None
 
         self._oauth_token: str | None = None
         self._oauth_expires_at: float = 0.0
@@ -153,18 +152,13 @@ class TernaLakeflowConnect(LakeflowConnect):
         method: str,
         path: str,
         params: dict[str, str] | None = None,
-        use_x_api_key: bool = False,
     ) -> requests.Response:
         """Issue an API request with Bearer or x-api-key auth; retry on 429/5xx and 403 Over Qps."""
         params = params or {}
         url = f"{self._base_url}{path}"
 
-        if use_x_api_key and self._x_api_key:
-            self._session.headers["x-api-key"] = self._x_api_key
-            self._session.headers.pop("Authorization", None)
-        else:
-            self._session.headers["Authorization"] = f"Bearer {self._get_token()}"
-            self._session.headers.pop("x-api-key", None)
+        self._session.headers["Authorization"] = f"Bearer {self._get_token()}"
+        self._session.headers.pop("x-api-key", None)
 
         backoff = INITIAL_BACKOFF
         for attempt in range(MAX_RETRIES):
@@ -362,7 +356,6 @@ class TernaLakeflowConnect(LakeflowConnect):
         date_to: datetime,
         table_options: dict[str, str],
         array_key: str,
-        use_x_api_key: bool = False,
         extra_params: dict[str, str] | None = None,
     ) -> list[dict]:
         """Request one date chunk and return the data array; empty list on error or no data."""
@@ -373,7 +366,7 @@ class TernaLakeflowConnect(LakeflowConnect):
         if extra_params:
             params.update(extra_params)
 
-        resp = self._request("GET", path, params=params, use_x_api_key=use_x_api_key)
+        resp = self._request("GET", path, params=params)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"Terna API error for {table_name}: {resp.status_code} {resp.text}"
@@ -414,7 +407,6 @@ class TernaLakeflowConnect(LakeflowConnect):
             to_date,
             table_options,
             "total_load",
-            use_x_api_key=False,
             extra_params=extra if extra else None,
         )
         if not records:
@@ -451,7 +443,6 @@ class TernaLakeflowConnect(LakeflowConnect):
             to_date,
             table_options,
             "actual_generation",
-            use_x_api_key=False,
             extra_params=extra if extra else None,
         )
         if not records:
@@ -488,7 +479,6 @@ class TernaLakeflowConnect(LakeflowConnect):
             to_date,
             table_options,
             "renewable_generation",
-            use_x_api_key=False,
             extra_params=extra if extra else None,
         )
         if not records:
@@ -519,8 +509,7 @@ class TernaLakeflowConnect(LakeflowConnect):
             from_date,
             to_date,
             table_options,
-            "physical_foreign_flow",
-            use_x_api_key=True,
+            "physical_foreign_flow"
         )
         if not records:
             end_offset = {"cursor": self._format_cursor(to_date)}
