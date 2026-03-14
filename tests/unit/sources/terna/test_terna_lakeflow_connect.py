@@ -9,6 +9,10 @@ from tests.unit.sources import test_suite
 from tests.unit.sources.test_suite import LakeflowConnectTester
 from tests.unit.sources.test_utils import load_config
 
+import logging
+
+LOGGER = logging.getLogger(__name__)
+
 
 def test_terna_init_raises_without_credentials():
     """Initializing without client_id or client_secret raises ValueError."""
@@ -95,6 +99,7 @@ def test_terna_read_table_with_simulated_offset():
     assert isinstance(end_offset, dict)
     assert "cursor" in end_offset
     # range_end is preserved for multi-chunk runs
+    LOGGER.info(end_offset)
     assert end_offset.get("range_end") == "2025-03-07 23:59:59"
     # Should have data for 2025-03-03 onward (or empty if API has no data for that day)
     assert all(isinstance(r, dict) for r in records)
