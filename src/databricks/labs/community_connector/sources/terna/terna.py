@@ -102,9 +102,9 @@ class TernaLakeflowConnect(LakeflowConnect):
         self._validate_table(table_name)
         reader = {
             "total_load": self._read_total_load,
-            "actual_generation": self._read_actual_generation,
-            "renewable_generation": self._read_renewable_generation,
-            "physical_foreign_flow": self._read_physical_foreign_flow,
+            #"actual_generation": self._read_actual_generation,
+            #"renewable_generation": self._read_renewable_generation,
+            #"physical_foreign_flow": self._read_physical_foreign_flow,
         }[table_name]
         return reader(start_offset, table_options)
 
@@ -186,18 +186,6 @@ class TernaLakeflowConnect(LakeflowConnect):
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _parse_start_offset(start_offset: dict | None) -> datetime | None:
-        """Parse cursor string (yyyy-mm-dd hh:mm:ss) to datetime (UTC)."""
-        if not start_offset or not start_offset.strip():
-            return None
-        try:
-            # API returns 'yyyy-mm-dd hh:mm:ss'; treat as naive then assume UTC
-            dt = datetime.strptime(start_offset.strip()[:19], "%Y-%m-%d %H:%M:%S")
-            return dt.replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            return None
-
-    @staticmethod
     def _format_api_date(dt: datetime) -> str:
         """Format datetime as dd/mm/yyyy for API query params."""
         return dt.strftime("%d/%m/%Y")
@@ -211,139 +199,6 @@ class TernaLakeflowConnect(LakeflowConnect):
     def _format_cursor(dt: datetime) -> str:
         """Format datetime for cursor/range_end (yyyy-mm-dd hh:mm:ss)."""
         return dt.strftime("%d/%m/%Y")
-
-    @staticmethod
-    def _default_date_range() -> tuple[datetime, datetime]:
-        """Default initial range: last 30 days up to end of yesterday."""
-        now = datetime.now(timezone.utc)
-        end = (now - timedelta(days=1)).replace(hour=23, minute=59, second=59)
-        start = end - timedelta(days=30)
-        return start, end
-
-    def _check_history_limit(self, from_date: datetime) -> None:
-        """Raise ValueError if from_date is earlier than the API's 5 solar-year history limit."""
-        now = datetime.now(timezone.utc)
-        min_allowed = datetime(
-            now.year - TERNA_MAX_HISTORY_SOLAR_YEARS, 1, 1, tzinfo=timezone.utc
-        )
-        if from_date < min_allowed:
-            raise ValueError(
-                f"Terna API allows history only within the last {TERNA_MAX_HISTORY_SOLAR_YEARS} solar years "
-                f"(date_from not sooner than 01/01/{now.year - TERNA_MAX_HISTORY_SOLAR_YEARS}); "
-                f"got {from_date.strftime('%Y-%m-%d')}"
-            )
-
-    def _next_chunk(
-        self,
-        start_offset: dict | None,
-        table_options: dict[str, str],
-    ) -> tuple[tuple[datetime, datetime] | None, str | None]:
-        """
-        Compute the next date chunk (from_date, to_date) in UTC.
-        Returns (None, None) if no more data (cursor already at or past end).
-        dateFrom is mandatory; dateTo is optional. When dateTo is omitted (CDC mode),
-        each run fetches from the last cursor to current execution time (multiple 60-day
-        API calls if needed). When dateTo is set, range is bounded and range_end is used on resume.
-        """
-        
-        # Parse inputs once
-        cursor_str = (start_offset or {}).get("cursor") if start_offset else None
-        date_from = self._parse_start_offset(cursor_str)
-
-        date_from_opt = (
-            table_options.get("date_from")
-            or table_options.get("dateFrom")
-            or table_options.get("datefrom")
-        )
-        date_to_opt = (
-            table_options.get("date_to")
-            or table_options.get("dateTo")
-            or table_options.get("dateto")
-        )
-        range_end_str = (start_offset or {}).get("range_end") if start_offset else None
-        range_end_dt = self._parse_start_offset(range_end_str) if range_end_str else None
-
-        now = datetime.now(timezone.utc)
-        end_cap = (now - timedelta(days=1)).replace(
-            hour=23, minute=59, second=59, microsecond=0
-        )
-
-        if date_from is not None:
-            # Resume: from_date = day after cursor; effective_end from range_end (bounded) or now (CDC)
-            from_date = (date_from.replace(tzinfo=timezone.utc) + timedelta(days=1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            if range_end_dt is not None:
-                effective_end = min(now, range_end_dt.replace(tzinfo=timezone.utc))
-            else:
-                # CDC: min(now, from_date + TERNA_MAX_DAYS_PER_REQUEST)
-                effective_end = min(
-                    now,
-                    (from_date + timedelta(days=TERNA_MAX_DAYS_PER_REQUEST)).replace(
-                        hour=23, minute=59, second=59, microsecond=0
-                    ),
-                )
-            self._check_history_limit(from_date)
-            if from_date > effective_end:
-                return None, range_end_str
-            chunk_end = (from_date + timedelta(days=TERNA_MAX_DAYS_PER_REQUEST - 1)).replace(
-                hour=23, minute=59, second=59, microsecond=0
-            )
-            to_date = min(chunk_end, effective_end)
-            return (from_date, to_date), range_end_str
-
-        # First run: date_from from options; date_to from options or min(now, from_date + 60d)
-        if date_from_opt:
-            try:
-                from_date = datetime.strptime(
-                    date_from_opt.strip(), "%d/%m/%Y"
-                ).replace(tzinfo=timezone.utc)
-                if date_to_opt:
-                    to_date_requested = datetime.strptime(
-                        date_to_opt.strip(), "%d/%m/%Y"
-                    ).replace(
-                        hour=23, minute=59, second=59, microsecond=0, tzinfo=timezone.utc
-                    )
-                    effective_end = min(to_date_requested, now)
-                else:
-                    # date_to None: end = min(now, from_date + TERNA_MAX_DAYS_PER_REQUEST)
-                    effective_end = min(
-                        now,
-                        (from_date + timedelta(days=TERNA_MAX_DAYS_PER_REQUEST)).replace(
-                            hour=23, minute=59, second=59, microsecond=0
-                        ),
-                    )
-                self._check_history_limit(from_date)
-                if from_date > effective_end:
-                    return None, None
-                chunk_end = (from_date + timedelta(days=TERNA_MAX_DAYS_PER_REQUEST - 1)).replace(
-                    hour=23, minute=59, second=59, microsecond=0
-                )
-                to_date = min(chunk_end, effective_end)
-                if from_date > to_date:
-                    return None, None
-                range_end_for_offset = (
-                    self._format_cursor(effective_end) if to_date < effective_end else None
-                )
-                return (from_date, to_date), range_end_for_offset
-            except (ValueError, TypeError):
-                pass
-
-        # Fallback when date_from not provided (backward compatibility)
-        start_default, end_default = self._default_date_range()
-        self._check_history_limit(start_default)
-        chunk = (start_default, min(end_default, end_cap))
-        return chunk, None
-
-    def _max_date_in_records(self, records: list[dict], date_key: str = "date") -> str | None:
-        """Return the maximum 'date' string in records, or None if empty."""
-        max_d: str | None = None
-        for r in records:
-            d = r.get(date_key)
-            if isinstance(d, str) and d:
-                if max_d is None or d > max_d:
-                    max_d = d
-        return max_d
 
     def _read_table_chunk(
         self,
@@ -475,7 +330,7 @@ class TernaLakeflowConnect(LakeflowConnect):
 
         last_chunk_end = chunks[-1][1]
         return iter(records), {'cursor': self._format_cursor(last_chunk_end)}
-
+'''
     def _read_actual_generation(
         self,
         start_offset: dict | None,
@@ -577,3 +432,4 @@ class TernaLakeflowConnect(LakeflowConnect):
         elif start_offset and "range_end" in start_offset:
             end_offset["range_end"] = start_offset["range_end"]
         return iter(records), end_offset
+'''
