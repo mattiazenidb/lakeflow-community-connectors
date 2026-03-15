@@ -209,6 +209,44 @@ def test_terna_not_full_start_end_dates():
     assert len(records) == 0 
     assert offset.get("cursor") == "29/02/2024"
 
+
+def test_terna_wrong_bidding_zone():
+    config_dir = Path(__file__).parent / "configs"
+    config = load_config(config_dir / "dev_config.json")
+
+    if not config.get("client_id") or not config.get("client_secret"):
+        pytest.skip("Terna API credentials not set in dev_config.json")
+
+    connector = TernaLakeflowConnect(config)
+    table_options = {"date_from": "28/02/2024", "date_to": "29/02/2024", "bidding_zone": "Trento"}
+    # Full refresh, cursor is None
+    start_offset = {"cursor": "29/02/2024"}
+
+    records_iter, offset = connector.read_table("total_load", start_offset, table_options)
+    records = list(records_iter)
+    
+    with pytest.raises(ValueError, match="Terna connector: Invalid biddingZone value Trento. Must be one of: North Centre-North, South, Centre-South, Sardinia, Sicily, Calabria, Italy"):
+        connector.read_table("total_load", start_offset, table_options)
+
+
+def test_terna_multiple_bidding_zones():
+    config_dir = Path(__file__).parent / "configs"
+    config = load_config(config_dir / "dev_config.json")
+
+    if not config.get("client_id") or not config.get("client_secret"):
+        pytest.skip("Terna API credentials not set in dev_config.json")
+
+    connector = TernaLakeflowConnect(config)
+    table_options = {"date_from": "28/02/2024", "date_to": "29/02/2024", "bidding_zone": "Italy", "bidding_zone": "North"}
+    # Full refresh, cursor is None
+    start_offset = {"cursor": "29/02/2024"}
+
+    records_iter, offset = connector.read_table("total_load", start_offset, table_options)
+    records = list(records_iter)
+    
+    logger.info(records)
+
+
 def test_terna_connector():
     """Test the Terna connector using the shared LakeflowConnect test suite."""
     test_suite.LakeflowConnect = TernaLakeflowConnect

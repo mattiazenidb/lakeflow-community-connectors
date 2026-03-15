@@ -18,6 +18,7 @@ from pyspark.sql.types import *
 import base64
 import logging
 import requests
+import uuid
 
 
 def register_lakeflow_source(spark):
@@ -379,6 +380,18 @@ def register_lakeflow_source(spark):
         ]
     )
 
+    # Bidding zones supported by the Terna API
+    TOTAL_LOAD_BIDDING_ZONES = [
+        "North",
+        "Centre-North",
+        "South",
+        "Centre-South",
+        "Sardinia",
+        "Sicily",
+        "Calabria",
+        "Italy",
+    ]
+
     # actual_generation: date, date_tz, date_offset, actual_generation_GWh, primary_source
     ACTUAL_GENERATION_SCHEMA = StructType(
         [
@@ -472,7 +485,6 @@ def register_lakeflow_source(spark):
     TERNA_MAX_DAYS_PER_REQUEST = 60
     # Terna API allows history only within the last N solar years (date_from not sooner than 01/01/(year-N))
     TERNA_MAX_HISTORY_SOLAR_YEARS = 5
-
 
     class TernaLakeflowConnect(LakeflowConnect):
         """LakeflowConnect implementation for the Terna Public API."""
@@ -592,7 +604,7 @@ def register_lakeflow_source(spark):
             url = f"{self._base_url}{path}"
 
             self._session.headers["Authorization"] = f"Bearer {self._get_token()}"
-            self._session.headers.pop("x-api-key", None)
+            self._session.headers["businessID"] = str(uuid.uuid4())
 
             backoff = INITIAL_BACKOFF
             for attempt in range(MAX_RETRIES):
@@ -688,6 +700,10 @@ def register_lakeflow_source(spark):
             )
             if bidding_zone:
                 # API accepts multiple biddingZone params
+                if bidding_zone not in TOTAL_LOAD_BIDDING_ZONES:
+                    raise ValueError(
+                        f"Terna connector: Invalid biddingZone value {bidding_zone}. Must be one of: {', '.join(TOTAL_LOAD_BIDDING_ZONES)}"
+                    )
                 extra["biddingZone"] = bidding_zone.strip()
 
             date_from = (
@@ -736,10 +752,6 @@ def register_lakeflow_source(spark):
                     # We are in the setup where I want all data from date_from to current time
                     pass
 
-            # INSERT_YOUR_CODE
-            # The API accepts maximum 60 days per request (inclusive). We need to split [date_from, date_to] in chunks.
-            # We'll produce a list of (chunk_start, chunk_end) where each chunk is at most 60 days (special handling for the last chunk).
-
             chunks = []
             current_start = date_from
             while current_start < date_to:
@@ -747,7 +759,10 @@ def register_lakeflow_source(spark):
                 chunks.append((current_start, current_end))
                 current_start = current_end + timedelta(days=1)
 
-            logger.info(f"Requested more than 60 days, will be split in {len(chunks)} API calls.")
+            if len(chunks) > 1:
+                logger.info(f"Requested more than 60 days, will be split in {len(chunks)} API calls.")
+            else:
+                chunks.append((date_from, date_to))
 
             records = []
             for chunk in chunks:
@@ -762,8 +777,7 @@ def register_lakeflow_source(spark):
                     extra_params=extra if extra else None,
                 ))
 
-            last_chunk_end = chunks[-1][1]
-            return iter(records), {'cursor': self._format_cursor(last_chunk_end)}
+            return iter(records), {'cursor': self._format_cursor(chunks[-1][1])}
     '''
         def _read_actual_generation(
             self,

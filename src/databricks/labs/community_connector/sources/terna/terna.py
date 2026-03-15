@@ -7,6 +7,7 @@ x_api_key for the Physical Foreign Flow (transmission) endpoint.
 
 import logging
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
@@ -18,6 +19,7 @@ from databricks.labs.community_connector.sources.terna.terna_schemas import (
     SUPPORTED_TABLES,
     TABLE_METADATA,
     TABLE_SCHEMAS,
+    TOTAL_LOAD_BIDDING_ZONES,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,6 @@ QPS_BACKOFF_SEC = 3.0
 TERNA_MAX_DAYS_PER_REQUEST = 60
 # Terna API allows history only within the last N solar years (date_from not sooner than 01/01/(year-N))
 TERNA_MAX_HISTORY_SOLAR_YEARS = 5
-
 
 class TernaLakeflowConnect(LakeflowConnect):
     """LakeflowConnect implementation for the Terna Public API."""
@@ -158,7 +159,7 @@ class TernaLakeflowConnect(LakeflowConnect):
         url = f"{self._base_url}{path}"
 
         self._session.headers["Authorization"] = f"Bearer {self._get_token()}"
-        self._session.headers.pop("x-api-key", None)
+        self._session.headers["businessID"] = str(uuid.uuid4())
 
         backoff = INITIAL_BACKOFF
         for attempt in range(MAX_RETRIES):
@@ -254,6 +255,10 @@ class TernaLakeflowConnect(LakeflowConnect):
         )
         if bidding_zone:
             # API accepts multiple biddingZone params
+            if bidding_zone not in TOTAL_LOAD_BIDDING_ZONES:
+                raise ValueError(
+                    f"Terna connector: Invalid biddingZone value {bidding_zone}. Must be one of: {', '.join(TOTAL_LOAD_BIDDING_ZONES)}"
+                )
             extra["biddingZone"] = bidding_zone.strip()
         
         date_from = (
@@ -309,7 +314,10 @@ class TernaLakeflowConnect(LakeflowConnect):
             chunks.append((current_start, current_end))
             current_start = current_end + timedelta(days=1)
 
-        logger.info(f"Requested more than 60 days, will be split in {len(chunks)} API calls.")
+        if len(chunks) > 1:
+            logger.info(f"Requested more than 60 days, will be split in {len(chunks)} API calls.")
+        else:
+            chunks.append((date_from, date_to))
 
         records = []
         for chunk in chunks:
@@ -324,8 +332,7 @@ class TernaLakeflowConnect(LakeflowConnect):
                 extra_params=extra if extra else None,
             ))
 
-        last_chunk_end = chunks[-1][1]
-        return iter(records), {'cursor': self._format_cursor(last_chunk_end)}
+        return iter(records), {'cursor': self._format_cursor(chunks[-1][1])}
 '''
     def _read_actual_generation(
         self,
