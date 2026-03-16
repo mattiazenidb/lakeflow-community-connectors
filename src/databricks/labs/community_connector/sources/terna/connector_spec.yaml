@@ -1,0 +1,54 @@
+# terna Community Connector Spec
+# This file defines the specification for the connector including
+# connection parameters and allowlist options.
+
+# ============================================================================
+# Connection Parameters
+# These are provided when creating the Unity Catalog connection.
+# Terna APIs use OAuth 2.0 Client Credentials; tokens are obtained at runtime
+# from https://api.terna.it/public-api/access-token.
+# ============================================================================
+display_name: Terna
+connection:
+  parameters:
+    - name: client_id
+      type: string
+      required: true
+      description: >
+        OAuth 2.0 Client Credentials application key (API Key).
+        Obtained by registering and creating an application on the Terna
+        developer portal (https://developer.terna.it).
+
+    - name: client_secret
+      type: string
+      required: true
+      secret: true
+      description: >
+        OAuth 2.0 Client Credentials application secret.
+        Obtained alongside the client_id when creating the application.
+
+    - name: base_url
+      type: string
+      required: false
+      description: >
+        Base URL for the Terna API. Defaults to https://api.terna.it.
+        Override only if using a different environment or endpoint.
+
+    - name: x_api_key
+      type: string
+      required: false
+      secret: true
+      description: >
+        Optional API key for the Physical Foreign Flow (transmission) endpoint
+        when that endpoint uses x-api-key header instead of the OAuth Bearer
+        token. Leave empty if the transmission API accepts the same OAuth token.
+
+# ============================================================================
+# External Options Allowlist
+# These table-specific options must be included in the externalOptionsAllowList
+# parameter of the UC connection to allow them to be passed through.
+# Include both canonical names (date_from, date_to, ...) and normalized forms
+# (datefrom, dateto, ...) because the platform may lower-case and strip
+# underscores when validating option keys.
+# ============================================================================
+external_options_allowlist: "date_from,date_to,datefrom,dateto,chunk_days,chunkdays,biddingZone,bidding_zone,biddingzone,type"

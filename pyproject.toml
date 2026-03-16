@@ -34,9 +34,19 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v"
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 [tool.black]
 line-length = 100
 
 [tool.ruff]
 line-length = 100
+
+[tool.pyrefly]
+project-includes = ["**/*.py"]
+project-excludes = []
+search-path = []
+disable-search-path-heuristics = true
+ignore-missing-imports = ["*"]
+ignore-errors-in-generated-code = true
