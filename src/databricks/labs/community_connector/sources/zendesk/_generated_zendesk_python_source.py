@@ -13,11 +13,19 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Sequence,
 )
 import json
+import time
 
 from pyspark.sql import Row
-from pyspark.sql.datasource import DataSource, DataSourceReader, SimpleDataSourceStreamReader
+from pyspark.sql.datasource import (
+    DataSource,
+    DataSourceReader,
+    DataSourceStreamReader,
+    InputPartition,
+    SimpleDataSourceStreamReader,
+)
 from pyspark.sql.types import *
 import base64
 import requests
@@ -179,7 +187,7 @@ def register_lakeflow_source(spark):
     }
 
 
-    def parse_value(value: Any, field_type: DataType) -> Any:
+    def parse_value(value: Any, field_type: DataType) -> Any:  # pylint: disable=too-many-return-statements
         """
         Converts a JSON value into a PySpark-compatible data type based on the provided field type.
         """
@@ -193,6 +201,10 @@ def register_lakeflow_source(spark):
             return _parse_array(value, field_type)
         if isinstance(field_type, MapType):
             return _parse_map(value, field_type)
+
+        # Handle VariantType
+        if isinstance(field_type, VariantType):
+            return VariantVal.parseJson(value) if isinstance(value, str) else value
 
         # Handle primitive types via type-based lookup
         try:
@@ -356,6 +368,138 @@ def register_lakeflow_source(spark):
 
 
     ########################################################
+    # src/databricks/labs/community_connector/interface/supports_partition.py
+    ########################################################
+
+    class SupportsPartition(ABC):
+        """Mixin for connectors that support partitioned reads across Spark executors.
+
+        Must be used together with LakeflowConnect. Implement this when your
+        connector can split work into partitions that Spark distributes to workers,
+        instead of reading all data in one partition batch.
+
+        Usage::
+
+            class MyConnector(LakeflowConnect, SupportsPartition):
+                ...
+        """
+
+        @abstractmethod
+        def get_partitions(
+            self,
+            table_name: str,
+            table_options: dict[str, str],
+        ) -> Sequence[dict]:
+            """Return partition descriptors for reading data.
+
+            Each returned dict is passed to :meth:`read_partition` on an executor.
+
+            Args:
+                table_name: The name of the table.
+                table_options: A dictionary of options for accessing the table.
+            Returns:
+                A sequence of partition descriptor dicts. Each dict must be
+                JSON-serialisable (primitive types only).
+            """
+
+        @abstractmethod
+        def read_partition(
+            self, table_name: str, partition: dict, table_options: dict[str, str]
+        ) -> Iterator[dict]:
+            """Read records for a single partition.
+
+            This method runs on Spark executors and must be self-contained.
+
+            Args:
+                table_name: The name of the table.
+                partition: One of the partition dicts returned by
+                    :meth:`get_partitions`.
+                table_options: A dictionary of options for accessing the table.
+            Returns:
+                An iterator of records as JSON-compatible dicts.
+            """
+
+
+    class SupportsPartitionedStream(SupportsPartition):
+        """Mixin for connectors that support partitioned streaming reads.
+
+        Extends :class:`SupportsPartition` with offset awareness for streaming
+        micro-batches. A connector implementing this mixin automatically supports
+        both partitioned batch reads (via the inherited interface) and partitioned
+        streaming reads.
+
+        Usage::
+
+            class MyConnector(LakeflowConnect, SupportsPartitionedStream):
+                ...
+        """
+
+        def is_partitioned(self, table_name: str) -> bool:
+            """Return whether the given table supports partitioned streaming.
+
+            The default returns True. Override to return False for tables that
+            should fall back to simpleStreamReader.
+
+            Args:
+                table_name: The name of the table.
+                table_options: A dictionary of options for accessing the table.
+            """
+            return True
+
+        @abstractmethod
+        def latest_offset(
+            self,
+            table_name: str,
+            table_options: dict[str, str],
+            start_offset: dict | None = None,
+        ) -> dict:
+            """Return the most recent offset available for the table.
+
+            Called by Spark on every micro-batch to discover new data.
+
+            Args:
+                table_name: The name of the table.
+                table_options: A dictionary of options for accessing the table.
+                start_offset: The current start offset, or None on the first call.
+                    PySpark's ``DataSourceStreamReader.latestOffset()`` does not
+                    pass this yet, so the framework always sends None for now.
+                    Connectors may use it to implement windowed batching when
+                    called directly.
+            Returns:
+                A dict whose keys and values are primitive types (str, int, bool).
+            """
+
+        @abstractmethod
+        def get_partitions(
+            self,
+            table_name: str,
+            table_options: dict[str, str],
+            start_offset: dict | None = None,
+            end_offset: dict | None = None,
+        ) -> Sequence[dict]:
+            """Return partition descriptors for reading data.
+
+            Each returned dict is passed to :meth:`read_partition` on an executor.
+
+            For batch reads, ``start_offset`` and ``end_offset`` are both None —
+            return partitions covering the entire table.
+
+            For streaming micro-batches, they delimit the offset range — return
+            partitions covering that range, or an empty sequence when
+            ``start_offset == end_offset``.
+
+            Args:
+                table_name: The name of the table.
+                table_options: A dictionary of options for accessing the table.
+                start_offset: The start offset (exclusive), or None for batch.
+                end_offset: The end offset (inclusive), or None for batch.
+            Returns:
+                A sequence of partition descriptor dicts. Each dict must be
+                JSON-serialisable (primitive types only).
+            """
+
+
+    ########################################################
     # src/databricks/labs/community_connector/sources/zendesk/zendesk.py
     ########################################################
 
@@ -372,6 +516,8 @@ def register_lakeflow_source(spark):
                 "Authorization": "Basic " + base64.b64encode(auth_str.encode()).decode(),
                 "Content-Type": "application/json",
             }
+            self._init_time = int(time.time())
+            self._default_max_records_per_batch = 100_000
 
         def list_tables(self) -> List[str]:
             """Return the list of available Zendesk tables."""
@@ -642,8 +788,12 @@ def register_lakeflow_source(spark):
         def read_table(
             self, table_name: str, start_offset: dict, table_options: Dict[str, str]
         ) -> (Iterator[dict], dict):
-            """Read data from the specified Zendesk table with incremental support."""
-            # Map table names to their API endpoints and response keys
+            """Read data from the specified Zendesk table with incremental support.
+
+            Each incremental call fetches up to ``max_records_per_batch`` records
+            (default 100 000).  The cursor is capped at ``_init_time`` to
+            guarantee termination for ``availableNow`` triggers.
+            """
             api_config = {
                 "tickets": {
                     "endpoint": "incremental/tickets.json",
@@ -696,9 +846,16 @@ def register_lakeflow_source(spark):
                 raise ValueError(f"Table '{table_name}' is not supported.")
 
             config = api_config[table_name]
+            max_records = int(
+                table_options.get(
+                    "max_records_per_batch", self._default_max_records_per_batch
+                )
+            )
 
             if config.get("supports_incremental", False):
-                return self._read_incremental(table_name, config, start_offset)
+                return self._read_incremental(
+                    table_name, config, start_offset, max_records
+                )
             else:
                 return self._read_paginated(table_name, config, start_offset)
 
@@ -739,23 +896,36 @@ def register_lakeflow_source(spark):
                 max_time = max(max_time, record_time)
             return records, max_time
 
-        def _read_incremental(self, table_name: str, config: dict, start_offset: dict):
-            """Read data from incremental API endpoints."""
-            start_time = start_offset.get("start_time", 0) if start_offset else 0
-            endpoint = config["endpoint"]
-            response_key = config["response_key"]
+        def _read_incremental(
+            self,
+            table_name: str,
+            config: dict,
+            start_offset: dict,
+            max_records: int,
+        ):
+            """Read data from incremental API endpoints with bounded batch size.
 
-            # Build URL with query parameters
-            url = f"{self.base_url}/{endpoint}?start_time={start_time}"
-            if "include" in config:
-                url += f"&include={config['include']}"
+            Uses Zendesk's ``end_time`` response field to resume pagination
+            across microbatches.  The cursor is capped at ``_init_time`` so
+            that a single trigger run only drains data that existed when the
+            connector was instantiated.
+            """
+            start_time = start_offset.get("start_time", 0) if start_offset else 0
+            resume_after = start_offset.get("resume_after") if start_offset else None
+            endpoint = config["endpoint"]
+
+            api_cursor = resume_after if resume_after is not None else start_time
 
             all_records = []
-            next_page = url
             last_time = start_time
+            reached_end = False
 
-            while next_page:
-                resp = requests.get(next_page, headers=self.auth_header)
+            while len(all_records) < max_records:
+                url = f"{self.base_url}/{endpoint}?start_time={api_cursor}"
+                if "include" in config:
+                    url += f"&include={config['include']}"
+
+                resp = requests.get(url, headers=self.auth_header)
                 if resp.status_code != 200:
                     raise Exception(
                         f"Zendesk API error for {table_name}: {resp.status_code} {resp.text}"
@@ -766,16 +936,33 @@ def register_lakeflow_source(spark):
                 if table_name == "ticket_comments":
                     records, max_time = self._extract_ticket_comments(data)
                 else:
-                    records, max_time = self._extract_records_with_time(data, response_key)
+                    records, max_time = self._extract_records_with_time(
+                        data, config["response_key"]
+                    )
 
                 all_records.extend(records)
                 last_time = max(last_time, max_time)
 
-                next_page = data.get("next_page")
-                if data.get("end_of_stream", True) or not next_page:
+                end_time = data.get("end_time")
+                if data.get("end_of_stream", True) or not end_time or end_time == api_cursor:
+                    reached_end = True
                     break
 
-            return all_records, {"start_time": last_time}
+                api_cursor = end_time
+
+            if not all_records:
+                return [], start_offset or {}
+
+            if not reached_end:
+                next_offset = {
+                    "start_time": last_time,
+                    "resume_after": api_cursor,
+                }
+            else:
+                capped = min(last_time, self._init_time)
+                next_offset = {"start_time": capped}
+
+            return all_records, next_offset
 
         def _read_paginated(self, table_name: str, config: dict, start_offset: dict):
             """Read data from paginated API endpoints"""
@@ -887,6 +1074,47 @@ def register_lakeflow_source(spark):
             return self.read(start)[0]
 
 
+    class LakeflowPartitionedStreamReader(DataSourceStreamReader):
+        """Proxy that bridges SupportsPartitionedStream to PySpark's DataSourceStreamReader.
+
+        Used when a connector implements the SupportsPartitionedStream mixin to
+        support partitioned streaming reads across Spark executors.
+        """
+
+        def __init__(
+            self,
+            options: dict[str, str],
+            schema: StructType,
+            lakeflow_connect: LakeflowConnect,
+        ):
+            self.options = options
+            self.schema = schema
+            self.lakeflow_connect = lakeflow_connect
+            self.table_name = options[TABLE_NAME]
+            self.table_options = {k: v for k, v in options.items() if k != IS_DELETE_FLOW}
+
+        def initialOffset(self):
+            return {}
+
+        def latestOffset(self):
+            # PySpark does not pass the current offset to latestOffset() yet,
+            # so we forward None.  Once PySpark supports it, pass the real value.
+            return self.lakeflow_connect.latest_offset(self.table_name, self.table_options, None)
+
+        def partitions(self, start: dict, end: dict):
+            partition_descs = self.lakeflow_connect.get_partitions(
+                self.table_name, self.table_options, start, end
+            )
+            return [InputPartition(json.dumps(p)) for p in partition_descs]
+
+        def read(self, partition: InputPartition):
+            partition_desc = json.loads(partition.value)
+            records = self.lakeflow_connect.read_partition(
+                self.table_name, partition_desc, self.table_options
+            )
+            return map(lambda x: parse_value(x, self.schema), records)
+
+
     class LakeflowBatchReader(DataSourceReader):
         def __init__(
             self,
@@ -898,18 +1126,30 @@ def register_lakeflow_source(spark):
             self.schema = schema
             self.lakeflow_connect = lakeflow_connect
             self.table_name = options[TABLE_NAME]
+            self._supports_partition = isinstance(lakeflow_connect, SupportsPartition)
+
+        def partitions(self):
+            if self._supports_partition and self.table_name != METADATA_TABLE:
+                try:
+                    partition_descs = self.lakeflow_connect.get_partitions(
+                        self.table_name, self.options
+                    )
+                    return [InputPartition(json.dumps(p)) for p in partition_descs]
+                except Exception:
+                    self._supports_partition = False
+            return [InputPartition(None)]
 
         def read(self, partition):
-            all_records = []
             if self.table_name == METADATA_TABLE:
-                all_records = self._read_table_metadata()
-            else:
-                all_records, _ = self.lakeflow_connect.read_table(
-                    self.table_name, None, self.options
+                records = self._read_table_metadata()
+            elif self._supports_partition and partition.value is not None:
+                partition_desc = json.loads(partition.value)
+                records = self.lakeflow_connect.read_partition(
+                    self.table_name, partition_desc, self.options
                 )
-
-            rows = map(lambda x: parse_value(x, self.schema), all_records)
-            return iter(rows)
+            else:
+                records, _ = self.lakeflow_connect.read_table(self.table_name, None, self.options)
+            return map(lambda x: parse_value(x, self.schema), records)
 
         def _read_table_metadata(self):
             table_name_list = self.options.get(TABLE_NAME_LIST, "")
@@ -955,6 +1195,17 @@ def register_lakeflow_source(spark):
 
         def reader(self, schema: StructType):
             return LakeflowBatchReader(self.options, schema, self.lakeflow_connect)
+
+        def streamReader(self, schema: StructType):
+            # Use the partitioned DataSourceStreamReader when the connector
+            # implements SupportsPartitionedStream and the table opts in.
+            # Otherwise, delegate to super() which raises PySparkNotImplementedError,
+            # causing Spark to fall back to simpleStreamReader().
+            if isinstance(self.lakeflow_connect, SupportsPartitionedStream):
+                table = self.options[TABLE_NAME]
+                if self.lakeflow_connect.is_partitioned(table):
+                    return LakeflowPartitionedStreamReader(self.options, schema, self.lakeflow_connect)
+            return super().streamReader(schema)
 
         def simpleStreamReader(self, schema: StructType):
             return LakeflowStreamReader(self.options, schema, self.lakeflow_connect)
