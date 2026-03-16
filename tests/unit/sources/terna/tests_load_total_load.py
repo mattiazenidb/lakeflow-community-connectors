@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 from databricks.labs.community_connector.sources.terna.terna import TernaLakeflowConnect
-from tests.unit.sources import test_suite
-from tests.unit.sources.test_suite import LakeflowConnectTester
 from tests.unit.sources.test_utils import load_config
 
 import logging
