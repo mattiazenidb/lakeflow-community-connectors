@@ -164,6 +164,8 @@ class TernaApiClient:
         if extra_params is not None:
             params.update(extra_params)
 
+        logger.debug("Path: %s, Params: %s", path, params)
+
         resp = self.request("GET", path, params=params)
         if resp.status_code != 200:
             raise RuntimeError(

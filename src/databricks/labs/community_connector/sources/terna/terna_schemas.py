@@ -17,6 +17,7 @@ from pyspark.sql.types import (
 SUPPORTED_TABLES = [
     "total_load",
     "market_load",
+    "daily_prices",
     #"actual_generation",
     #"renewable_generation",
     #"physical_foreign_flow",
@@ -60,6 +61,26 @@ MARKET_LOAD_SCHEMA = StructType(
 MARKET_LOAD_METADATA = {
     "primary_keys": ["date", "bidding_zone"],
     "cursor_field": "date",
+    "ingestion_type": "append",
+}
+
+# daily_prices: date, date_tz, date_offset, price_eur_mwh, bidding_zone
+DAILY_PRICES_SCHEMA = StructType(
+    [
+        StructField("publication_date", StringType(), True),
+        StructField("reference_date", StringType(), True),
+        StructField("data_type", StringType(), True),
+        StructField("date_tz", StringType(), True),
+        StructField("macrozone", StringType(), True),
+        StructField("base_price_EURxMWh", StringType(), True),
+        StructField("incentive_component_EURxMWh", StringType(), True),
+        StructField("unbalance_price_EURxMWh", StringType(), True),
+    ]
+)
+
+DAILY_PRICES_METADATA = {
+    "primary_keys": ["reference_date", "macrozone"],
+    "cursor_field": "reference_date",
     "ingestion_type": "append",
 }
 
@@ -108,6 +129,7 @@ PHYSICAL_FOREIGN_FLOW_SCHEMA = StructType(
 TABLE_SCHEMAS = {
     "total_load": TOTAL_LOAD_SCHEMA,
     "market_load": MARKET_LOAD_SCHEMA,
+    "daily_prices": DAILY_PRICES_SCHEMA,
     #"actual_generation": ACTUAL_GENERATION_SCHEMA,
     #"renewable_generation": RENEWABLE_GENERATION_SCHEMA,
     #"physical_foreign_flow": PHYSICAL_FOREIGN_FLOW_SCHEMA,
@@ -120,22 +142,5 @@ TABLE_SCHEMAS = {
 TABLE_METADATA = {
     "total_load": TOTAL_LOAD_METADATA,
     "market_load": MARKET_LOAD_METADATA,
+    "daily_prices": DAILY_PRICES_METADATA,
 }
-
-'''
-    "actual_generation": {
-        "primary_keys": ["date", "primary_source"],
-        "cursor_field": "date",
-        "ingestion_type": "append",
-    },
-    "renewable_generation": {
-        "primary_keys": ["date", "energy_source"],
-        "cursor_field": "date",
-        "ingestion_type": "append",
-    },
-    "physical_foreign_flow": {
-        "primary_keys": ["date", "country"],
-        "cursor_field": "date",
-        "ingestion_type": "append",
-    },
-    '''

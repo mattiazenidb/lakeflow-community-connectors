@@ -1,4 +1,4 @@
-"""Reader for the market_load table (Terna load API)."""
+"""Reader for the daily_prices table (Terna fees API)."""
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -11,27 +11,21 @@ from databricks.labs.community_connector.sources.terna.utils.terna_api_client im
 logger = logging.getLogger(__name__)
 
 # Terna API allows at most this many days per request; longer ranges are chunked
-TERNA_MAX_DAYS_PER_REQUEST = 60
+MAX_DAYS_PER_REQUEST = 62
 # Terna API allows history only within the last N solar years
-TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+MAX_HISTORY_SOLAR_YEARS = 5
 
-MARKET_LOAD_PATH = "/load/v2.0/market-load"
-ARRAY_KEY = "market_load"
+DAILY_PRICES_PATH = "/load/v2.0/daily-prices"
+ARRAY_KEY = "daily_prices"
 
 
-class MarketLoadReader:
-    """Reads market_load data from the Terna Public API in date-range chunks."""
+class DailyPricesReader:
+    """Reads daily_prices data from the Terna Public API in date-range chunks."""
 
     # Bidding zones supported by the Terna API
-    MARKET_LOAD_BIDDING_ZONES = [
-        "North",
-        "Centre-North",
-        "South",
-        "Centre-South",
-        "Sardinia",
-        "Sicily",
-        "Calabria",
-        "Italy",
+    DAILY_PRICES_DATA_TYPES = [
+        "Orario",
+        "Quarto Orario"
     ]
 
     def __init__(self, client: TernaApiClient) -> None:
@@ -42,28 +36,28 @@ class MarketLoadReader:
         start_offset: dict | None,
         table_options: dict[str, str],
     ) -> tuple[Iterator[dict], dict]:
-        """Read market_load records. Optional table_options: biddingZone (comma-separated or repeated)."""
+        """Read daily_prices records. Optional table_options: dataTypes (Orario, Quarto Orario)."""
         logger.info("Table options: %s", table_options)
 
         extra: dict[str, str | list[str]] = {}
-        raw_bidding_zones = (
-            table_options.get("biddingZones")
-            or table_options.get("bidding_zones")
-            or table_options.get("biddingzones")
+        raw_data_types = (
+            table_options.get("dataTypes")
+            or table_options.get("data_types")
+            or table_options.get("datatypes")
         )
-        if raw_bidding_zones is not None:
-            zones = (
-                [z.strip() for z in raw_bidding_zones.split(",")]
-                if isinstance(raw_bidding_zones, str)
-                else list(raw_bidding_zones)
+        if raw_data_types is not None:
+            data_types = (
+                [z.strip() for z in raw_data_types.split(",")]
+                if isinstance(raw_data_types, str)
+                else list(raw_data_types)
             )
-            for bidding_zone in zones:
-                if bidding_zone not in self.MARKET_LOAD_BIDDING_ZONES:
+            for data_type in data_types:
+                if data_type not in self.DAILY_PRICES_DATA_TYPES:
                     raise ValueError(
-                        f"Terna connector: Invalid biddingZone value {bidding_zone}. "
-                        f"Must be one of {', '.join(self.MARKET_LOAD_BIDDING_ZONES)}"
+                        f"Terna connector: Invalid dataType value {data_type}. "
+                        f"Must be one of {', '.join(self.DAILY_PRICES_DATA_TYPES)}"
                     )
-            extra["biddingZone"] = zones
+            extra["dataType"] = data_types
 
         date_from_str = (
             table_options.get("date_from")
@@ -78,19 +72,19 @@ class MarketLoadReader:
 
         if date_from_str is None:
             raise ValueError(
-                "Terna connector, API market_load requires 'date_from'"
+                "Terna connector, API daily_prices requires 'date_from'"
             )
 
         date_from = self._client.string_to_datetime(date_from_str)
         now = datetime.now(timezone.utc)
         min_allowed = datetime(
-            now.year - TERNA_MAX_HISTORY_SOLAR_YEARS, 1, 1, tzinfo=timezone.utc
+            now.year - MAX_HISTORY_SOLAR_YEARS, 1, 1, tzinfo=timezone.utc
         )
         if date_from < min_allowed:
             raise ValueError(
                 f"Terna connector: 'date_from' must be within the last "
-                f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not sooner than "
-                f"01/01/{now.year - TERNA_MAX_HISTORY_SOLAR_YEARS}"
+                f"{MAX_HISTORY_SOLAR_YEARS} solar years, not sooner than "
+                f"01/01/{now.year - MAX_HISTORY_SOLAR_YEARS}"
             )
 
         if date_to_str is not None:
@@ -108,7 +102,7 @@ class MarketLoadReader:
         current_start = date_from
         while current_start <= date_to:
             current_end = min(
-                current_start + timedelta(days=TERNA_MAX_DAYS_PER_REQUEST - 1),
+                current_start + timedelta(days=MAX_DAYS_PER_REQUEST - 1),
                 date_to,
             )
             chunks.append((current_start, current_end))
@@ -116,7 +110,7 @@ class MarketLoadReader:
 
         if len(chunks) > 1:
             logger.info(
-                "Requested more than 60 days, will be split in %s API calls.",
+                f"Requested more than {MAX_DAYS_PER_REQUEST} days, will be split in %s API calls.",
                 len(chunks),
             )
 
@@ -124,8 +118,8 @@ class MarketLoadReader:
         for chunk_from, chunk_to in chunks:
             records.extend(
                 self._client.read_table_chunk(
-                    "market_load",
-                    MARKET_LOAD_PATH,
+                    "daily_prices",
+                    DAILY_PRICES_PATH,
                     chunk_from,
                     chunk_to,
                     table_options,
