@@ -520,6 +520,7 @@ def register_lakeflow_source(spark):
     SUPPORTED_TABLES = [
         "total_load",
         "market_load",
+        "daily_prices",
         #"actual_generation",
         #"renewable_generation",
         #"physical_foreign_flow",
@@ -563,6 +564,26 @@ def register_lakeflow_source(spark):
     MARKET_LOAD_METADATA = {
         "primary_keys": ["date", "bidding_zone"],
         "cursor_field": "date",
+        "ingestion_type": "append",
+    }
+
+    # daily_prices: date, date_tz, date_offset, price_eur_mwh, bidding_zone
+    DAILY_PRICES_SCHEMA = StructType(
+        [
+            StructField("publication_date", StringType(), True),
+            StructField("reference_date", StringType(), True),
+            StructField("data_type", StringType(), True),
+            StructField("date_tz", StringType(), True),
+            StructField("macrozone", StringType(), True),
+            StructField("base_price_EURxMWh", StringType(), True),
+            StructField("incentive_component_EURxMWh", StringType(), True),
+            StructField("unbalance_price_EURxMWh", StringType(), True),
+        ]
+    )
+
+    DAILY_PRICES_METADATA = {
+        "primary_keys": ["reference_date", "macrozone"],
+        "cursor_field": "reference_date",
         "ingestion_type": "append",
     }
 
@@ -611,6 +632,7 @@ def register_lakeflow_source(spark):
     TABLE_SCHEMAS = {
         "total_load": TOTAL_LOAD_SCHEMA,
         "market_load": MARKET_LOAD_SCHEMA,
+        "daily_prices": DAILY_PRICES_SCHEMA,
         #"actual_generation": ACTUAL_GENERATION_SCHEMA,
         #"renewable_generation": RENEWABLE_GENERATION_SCHEMA,
         #"physical_foreign_flow": PHYSICAL_FOREIGN_FLOW_SCHEMA,
@@ -623,25 +645,8 @@ def register_lakeflow_source(spark):
     TABLE_METADATA = {
         "total_load": TOTAL_LOAD_METADATA,
         "market_load": MARKET_LOAD_METADATA,
+        "daily_prices": DAILY_PRICES_METADATA,
     }
-
-    '''
-        "actual_generation": {
-            "primary_keys": ["date", "primary_source"],
-            "cursor_field": "date",
-            "ingestion_type": "append",
-        },
-        "renewable_generation": {
-            "primary_keys": ["date", "energy_source"],
-            "cursor_field": "date",
-            "ingestion_type": "append",
-        },
-        "physical_foreign_flow": {
-            "primary_keys": ["date", "country"],
-            "cursor_field": "date",
-            "ingestion_type": "append",
-        },
-        '''
 
 
     ########################################################
@@ -771,6 +776,10 @@ def register_lakeflow_source(spark):
             """Format datetime for cursor/range_end (dd/mm/yyyy)."""
             return dt.strftime("%d/%m/%Y")
 
+        @staticmethod
+        def validate_extra_params(extra_params: str | list[str]) -> None:
+            return list(set([z.strip() for z in extra_params.split(",")]))
+
         def read_table_chunk(
             self,
             table_name: str,
@@ -800,6 +809,8 @@ def register_lakeflow_source(spark):
             if extra_params is not None:
                 params.update(extra_params)
 
+            logger.debug("Path: %s, Params: %s", path, params)
+
             resp = self.request("GET", path, params=params)
             if resp.status_code != 200:
                 raise RuntimeError(
@@ -812,6 +823,121 @@ def register_lakeflow_source(spark):
                 return []
 
             return data
+
+
+    ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/fees/daily_prices_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    # Terna API allows at most this many days per request; longer ranges are chunked
+    MAX_DAYS_PER_REQUEST = 62
+    # Terna API allows history only within the last N solar years
+    MAX_HISTORY_SOLAR_YEARS = 5
+
+    DAILY_PRICES_PATH = "/fees/v1.0/daily-prices"
+    ARRAY_KEY = "daily_prices"
+
+
+    class DailyPricesReader:
+        """Reads daily_prices data from the Terna Public API in date-range chunks."""
+
+        # Bidding zones supported by the Terna API
+        DAILY_PRICES_DATA_TYPES = [
+            "Orario",
+            "Quarto Orario"
+        ]
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read daily_prices records. Optional table_options: dataTypes (Orario, Quarto Orario)."""
+            logger.info("Table options: %s", table_options)
+
+            extra: dict[str, str | list[str]] = {}
+
+            raw_data_types = table_options.get("data_types")
+
+            if raw_data_types is not None:
+                data_types = self._client.validate_extra_params(raw_data_types)
+
+                for data_type in data_types:
+                    if data_type not in self.DAILY_PRICES_DATA_TYPES:
+                        raise ValueError(
+                            f"Terna connector: Invalid dataType value {data_type}. Must be one of {', '.join(self.DAILY_PRICES_DATA_TYPES)}"
+                        )
+                extra["dataType"] = data_types
+
+            date_from_str = table_options.get("date_from")
+            date_to_str = table_options.get("date_to")
+
+            if date_from_str is None:
+                raise ValueError(
+                    "Terna connector, API daily_prices requires 'date_from'"
+                )
+
+            date_from = self._client.string_to_datetime(date_from_str)
+            now = datetime.now(timezone.utc)
+            min_allowed = datetime(
+                now.year - MAX_HISTORY_SOLAR_YEARS, 1, 1, tzinfo=timezone.utc
+            )
+            if date_from < min_allowed:
+                raise ValueError(
+                    f"Terna connector: 'date_from' must be within the last "
+                    f"{MAX_HISTORY_SOLAR_YEARS} solar years, not sooner than "
+                    f"01/01/{now.year - MAX_HISTORY_SOLAR_YEARS}"
+                )
+
+            if date_to_str is not None:
+                date_to = self._client.string_to_datetime(date_to_str)
+            else:
+                date_to = datetime.now(timezone.utc)
+
+            if self._client.format_cursor(date_from) == self._client.format_cursor(date_to):
+                return iter([]), {"cursor": self._client.format_cursor(date_to)}
+
+            if start_offset and start_offset.get("cursor"):
+                date_from = self._client.string_to_datetime(start_offset["cursor"])
+
+            chunks: list[tuple[datetime, datetime]] = []
+            current_start = date_from
+            while current_start <= date_to:
+                current_end = min(
+                    current_start + timedelta(days=MAX_DAYS_PER_REQUEST - 1),
+                    date_to,
+                )
+                chunks.append((current_start, current_end))
+                current_start = current_end + timedelta(days=1)
+
+            if len(chunks) > 1:
+                logger.info(
+                    f"Requested more than {MAX_DAYS_PER_REQUEST} days, will be split in %s API calls.",
+                    len(chunks),
+                )
+
+            records: list[dict] = []
+            for chunk_from, chunk_to in chunks:
+                records.extend(
+                    self._client.read_table_chunk(
+                        "daily_prices",
+                        DAILY_PRICES_PATH,
+                        chunk_from,
+                        chunk_to,
+                        table_options,
+                        ARRAY_KEY,
+                        extra_params=extra if extra else None,
+                    )
+                )
+
+            return iter(records), {
+                "cursor": self._client.format_cursor(chunks[-1][1])
+            }
 
 
     ########################################################
@@ -831,9 +957,6 @@ def register_lakeflow_source(spark):
 
     class MarketLoadReader:
         """Reads market_load data from the Terna Public API in date-range chunks."""
-
-        MARKET_LOAD_SCHEMA = MARKET_LOAD_SCHEMA
-        MARKET_LOAD_METADATA = MARKET_LOAD_METADATA
 
         # Bidding zones supported by the Terna API
         MARKET_LOAD_BIDDING_ZONES = [
@@ -859,35 +982,21 @@ def register_lakeflow_source(spark):
             logger.info("Table options: %s", table_options)
 
             extra: dict[str, str | list[str]] = {}
-            raw_bidding_zones = (
-                table_options.get("biddingZones")
-                or table_options.get("bidding_zones")
-                or table_options.get("biddingzones")
-            )
+
+            raw_bidding_zones = table_options.get("bidding_zones")
+
             if raw_bidding_zones is not None:
-                zones = (
-                    [z.strip() for z in raw_bidding_zones.split(",")]
-                    if isinstance(raw_bidding_zones, str)
-                    else list(raw_bidding_zones)
-                )
-                for bidding_zone in zones:
+                bidding_zones = self._client.validate_extra_params(raw_bidding_zones)
+
+                for bidding_zone in bidding_zones:
                     if bidding_zone not in self.MARKET_LOAD_BIDDING_ZONES:
                         raise ValueError(
-                            f"Terna connector: Invalid biddingZone value {bidding_zone}. "
-                            f"Must be one of {', '.join(self.MARKET_LOAD_BIDDING_ZONES)}"
+                            f"Terna connector: Invalid biddingZone value {bidding_zone}. Must be one of {', '.join(self.MARKET_LOAD_BIDDING_ZONES)}"
                         )
-                extra["biddingZone"] = zones
+                extra["biddingZone"] = bidding_zones
 
-            date_from_str = (
-                table_options.get("date_from")
-                or table_options.get("dateFrom")
-                or table_options.get("datefrom")
-            )
-            date_to_str = (
-                table_options.get("date_to")
-                or table_options.get("dateTo")
-                or table_options.get("dateto")
-            )
+            date_from_str = table_options.get("date_from")
+            date_to_str = table_options.get("date_to")
 
             if date_from_str is None:
                 raise ValueError(
@@ -970,9 +1079,6 @@ def register_lakeflow_source(spark):
     class TotalLoadReader:
         """Reads total_load data from the Terna Public API in date-range chunks."""
 
-        TOTAL_LOAD_SCHEMA = TOTAL_LOAD_SCHEMA
-        TOTAL_LOAD_METADATA = TOTAL_LOAD_METADATA
-
         # Bidding zones supported by the Terna API
         TOTAL_LOAD_BIDDING_ZONES = [
             "North",
@@ -997,35 +1103,21 @@ def register_lakeflow_source(spark):
             logger.info("Table options: %s", table_options)
 
             extra: dict[str, str | list[str]] = {}
-            raw_bidding_zones = (
-                table_options.get("biddingZones")
-                or table_options.get("bidding_zones")
-                or table_options.get("biddingzones")
-            )
+
+            raw_bidding_zones = table_options.get("bidding_zones")
+
             if raw_bidding_zones is not None:
-                zones = (
-                    [z.strip() for z in raw_bidding_zones.split(",")]
-                    if isinstance(raw_bidding_zones, str)
-                    else list(raw_bidding_zones)
-                )
-                for bidding_zone in zones:
+                bidding_zones = self._client.validate_extra_params(raw_bidding_zones)
+
+                for bidding_zone in bidding_zones:
                     if bidding_zone not in self.TOTAL_LOAD_BIDDING_ZONES:
                         raise ValueError(
-                            f"Terna connector: Invalid biddingZone value {bidding_zone}. "
-                            f"Must be one of {', '.join(self.TOTAL_LOAD_BIDDING_ZONES)}"
+                            f"Terna connector: Invalid biddingZone value {bidding_zone}. Must be one of {', '.join(self.TOTAL_LOAD_BIDDING_ZONES)}"
                         )
-                extra["biddingZone"] = zones
+                extra["biddingZone"] = bidding_zones
 
-            date_from_str = (
-                table_options.get("date_from")
-                or table_options.get("dateFrom")
-                or table_options.get("datefrom")
-            )
-            date_to_str = (
-                table_options.get("date_to")
-                or table_options.get("dateTo")
-                or table_options.get("dateto")
-            )
+            date_from_str = table_options.get("date_from")
+            date_to_str = table_options.get("date_to")
 
             if date_from_str is None:
                 raise ValueError(
@@ -1112,6 +1204,7 @@ def register_lakeflow_source(spark):
             self._client = TernaApiClient(options)
             self._total_load_reader = TotalLoadReader(self._client)
             self._market_load_reader = MarketLoadReader(self._client)
+            self._daily_prices_reader = DailyPricesReader(self._client)
 
         def list_tables(self) -> list[str]:
             """List names of all tables supported by this connector."""
@@ -1142,114 +1235,9 @@ def register_lakeflow_source(spark):
             reader = {
                 "total_load": self._total_load_reader.read,
                 "market_load": self._market_load_reader.read,
-                #"actual_generation": self._read_actual_generation,
-                #"renewable_generation": self._read_renewable_generation,
-                #"physical_foreign_flow": self._read_physical_foreign_flow,
+                "daily_prices": self._daily_prices_reader.read,
             }[table_name]
             return reader(start_offset, table_options)
-    '''
-        def _read_actual_generation(
-            self,
-            start_offset: dict | None,
-            table_options: dict[str, str],
-        ) -> tuple[Iterator[dict], dict]:
-            """Read actual_generation in one date chunk. Optional table_options: type (primary source)."""
-            chunk_result, range_end_opt = self._next_chunk(start_offset, table_options)
-            if chunk_result is None:
-                return iter([]), start_offset or {}
-
-            from_date, to_date = chunk_result
-            extra = {}
-            type_opt = table_options.get("type")
-            if type_opt:
-                extra["type"] = type_opt.strip()
-
-            records = self._read_table_chunk(
-                "actual_generation",
-                "/generation/v2.0/actual-generation",
-                from_date,
-                to_date,
-                table_options,
-                "actual_generation",
-                extra_params=extra if extra else None,
-            )
-            if not records:
-                end_offset = {"cursor": self._format_cursor(to_date)}
-            else:
-                max_date = self._max_date_in_records(records)
-                end_offset = {"cursor": max_date} if max_date else dict(start_offset or {})
-            if range_end_opt is not None:
-                end_offset["range_end"] = range_end_opt
-            elif start_offset and "range_end" in start_offset:
-                end_offset["range_end"] = start_offset["range_end"]
-            return iter(records), end_offset
-
-        def _read_renewable_generation(
-            self,
-            start_offset: dict | None,
-            table_options: dict[str, str],
-        ) -> tuple[Iterator[dict], dict]:
-            """Read renewable_generation in one date chunk. Optional table_options: type."""
-            chunk_result, range_end_opt = self._next_chunk(start_offset, table_options)
-            if chunk_result is None:
-                return iter([]), start_offset or {}
-
-            from_date, to_date = chunk_result
-            extra = {}
-            type_opt = table_options.get("type")
-            if type_opt:
-                extra["type"] = type_opt.strip()
-
-            records = self._read_table_chunk(
-                "renewable_generation",
-                "/generation/v2.0/renewable-generation",
-                from_date,
-                to_date,
-                table_options,
-                "renewable_generation",
-                extra_params=extra if extra else None,
-            )
-            if not records:
-                end_offset = {"cursor": self._format_cursor(to_date)}
-            else:
-                max_date = self._max_date_in_records(records)
-                end_offset = {"cursor": max_date} if max_date else dict(start_offset or {})
-            if range_end_opt is not None:
-                end_offset["range_end"] = range_end_opt
-            elif start_offset and "range_end" in start_offset:
-                end_offset["range_end"] = start_offset["range_end"]
-            return iter(records), end_offset
-
-        def _read_physical_foreign_flow(
-            self,
-            start_offset: dict | None,
-            table_options: dict[str, str],
-        ) -> tuple[Iterator[dict], dict]:
-            """Read physical_foreign_flow in one date chunk."""
-            chunk_result, range_end_opt = self._next_chunk(start_offset, table_options)
-            if chunk_result is None:
-                return iter([]), start_offset or {}
-
-            from_date, to_date = chunk_result
-            records = self._read_table_chunk(
-                "physical_foreign_flow",
-                "/transmission/v2.0/physical-foreign-flow",
-                from_date,
-                to_date,
-                table_options,
-                "physical_foreign_flow"
-            )
-            if not records:
-                end_offset = {"cursor": self._format_cursor(to_date)}
-            else:
-                max_date = self._max_date_in_records(records)
-                end_offset = {"cursor": max_date} if max_date else dict(start_offset or {})
-            if range_end_opt is not None:
-                end_offset["range_end"] = range_end_opt
-            elif start_offset and "range_end" in start_offset:
-                end_offset["range_end"] = start_offset["range_end"]
-            return iter(records), end_offset
-    '''
 
 
     ########################################################

@@ -135,6 +135,10 @@ class TernaApiClient:
         """Format datetime for cursor/range_end (dd/mm/yyyy)."""
         return dt.strftime("%d/%m/%Y")
 
+    @staticmethod
+    def validate_extra_params(extra_params: str | list[str]) -> None:
+        return list(set([z.strip() for z in extra_params.split(",")]))
+
     def read_table_chunk(
         self,
         table_name: str,
@@ -163,6 +167,8 @@ class TernaApiClient:
         }
         if extra_params is not None:
             params.update(extra_params)
+
+        logger.debug("Path: %s, Params: %s", path, params)
 
         resp = self.request("GET", path, params=params)
         if resp.status_code != 200:
