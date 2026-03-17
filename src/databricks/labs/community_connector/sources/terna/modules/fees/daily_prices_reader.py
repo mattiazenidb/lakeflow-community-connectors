@@ -40,35 +40,21 @@ class DailyPricesReader:
         logger.info("Table options: %s", table_options)
 
         extra: dict[str, str | list[str]] = {}
-        raw_data_types = (
-            table_options.get("dataTypes")
-            or table_options.get("data_types")
-            or table_options.get("datatypes")
-        )
+        
+        raw_data_types = table_options.get("data_types")
+        
         if raw_data_types is not None:
-            data_types = (
-                [z.strip() for z in raw_data_types.split(",")]
-                if isinstance(raw_data_types, str)
-                else list(raw_data_types)
-            )
+            data_types = self._client.validate_extra_params(raw_data_types)
+
             for data_type in data_types:
                 if data_type not in self.DAILY_PRICES_DATA_TYPES:
                     raise ValueError(
-                        f"Terna connector: Invalid dataType value {data_type}. "
-                        f"Must be one of {', '.join(self.DAILY_PRICES_DATA_TYPES)}"
+                        f"Terna connector: Invalid dataType value {data_type}. Must be one of {', '.join(self.DAILY_PRICES_DATA_TYPES)}"
                     )
             extra["dataType"] = data_types
 
-        date_from_str = (
-            table_options.get("date_from")
-            or table_options.get("dateFrom")
-            or table_options.get("datefrom")
-        )
-        date_to_str = (
-            table_options.get("date_to")
-            or table_options.get("dateTo")
-            or table_options.get("dateto")
-        )
+        date_from_str = table_options.get("date_from")
+        date_to_str = table_options.get("date_to")
 
         if date_from_str is None:
             raise ValueError(

@@ -78,7 +78,7 @@ def test_terna_daily_prices_beyond_five_years_limit():
 
 
 def test_terna_daily_prices_invalid_data_type():
-    """When dataTypes contains an invalid value, connector raises ValueError."""
+    """When data_types contains an invalid value, connector raises ValueError."""
     config_dir = Path(__file__).parent / "configs"
     config = load_config(config_dir / "dev_config.json")
 
@@ -89,7 +89,7 @@ def test_terna_daily_prices_invalid_data_type():
     table_options = {
         "date_from": "01/02/2024",
         "date_to": "02/02/2024",
-        "dataTypes": "InvalidType",
+        "data_types": "InvalidType",
     }
     start_offset = None
 
@@ -101,7 +101,7 @@ def test_terna_daily_prices_invalid_data_type():
 
 
 def test_terna_daily_prices_valid_data_type_orario():
-    """Read daily_prices with dataTypes=Orario (no error; may skip if API unavailable)."""
+    """Read daily_prices with data_types=Orario (no error; may skip if API unavailable)."""
     config_dir = Path(__file__).parent / "configs"
     config = load_config(config_dir / "dev_config.json")
 
@@ -112,7 +112,7 @@ def test_terna_daily_prices_valid_data_type_orario():
     table_options = {
         "date_from": "01/02/2024",
         "date_to": "02/02/2024",
-        "dataTypes": "Orario",
+        "data_types": "Orario",
     }
     start_offset = None
 
@@ -128,7 +128,7 @@ def test_terna_daily_prices_valid_data_type_orario():
 
 
 def test_terna_daily_prices_valid_data_type_quarto_orario():
-    """Read daily_prices with dataTypes=Quarto Orario (no error)."""
+    """Read daily_prices with data_types=Quarto Orario (no error)."""
     config_dir = Path(__file__).parent / "configs"
     config = load_config(config_dir / "dev_config.json")
 
