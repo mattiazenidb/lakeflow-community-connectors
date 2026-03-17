@@ -182,7 +182,7 @@ def test_terna_daily_prices_full_start_end_dates():
         pytest.skip("Terna API credentials not set in dev_config.json")
 
     connector = TernaLakeflowConnect(config)
-    table_options = {"date_from": "01/02/2024", "date_to": "29/02/2024", "data_types": "Quarto Orario"}
+    table_options = {"date_from": "01/02/2024", "date_to": "29/02/2024", "data_types": "Orario"}
     start_offset = None
 
     try:

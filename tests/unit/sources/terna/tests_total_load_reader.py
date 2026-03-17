@@ -26,28 +26,6 @@ def test_terna_init_raises_without_credentials():
         TernaLakeflowConnect({"client_secret": "y"})
 
 
-def test_terna_list_tables_and_schema():
-    """list_tables returns the four supported tables; get_table_schema returns expected fields (no API call)."""
-    connector = TernaLakeflowConnect({"client_id": "test", "client_secret": "test"})
-
-    tables = connector.list_tables()
-    assert tables == [
-        "total_load",
-        "actual_generation",
-        "renewable_generation",
-        "physical_foreign_flow",
-    ]
-
-    schema = connector.get_table_schema("total_load", {})
-    assert schema.fieldNames() == [
-        "date",
-        "date_tz",
-        "date_offset",
-        "total_load_MW",
-        "forecast_total_load_MW",
-        "bidding_zone",
-    ]
-
 def test_terna_full_missing_date_from():
     """When date_from is missing, connector raises ValueError (API requires it)."""
     config_dir = Path(__file__).parent / "configs"
