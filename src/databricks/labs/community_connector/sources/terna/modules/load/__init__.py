@@ -15,5 +15,8 @@ from databricks.labs.community_connector.sources.terna.modules.load.total_load_r
 from databricks.labs.community_connector.sources.terna.modules.load.monthly_index_industrial_electrical_consumption_reader import (
     MonthlyIndexIndustrialElectricalConsumptionReader,
 )
+from databricks.labs.community_connector.sources.terna.modules.load.demand_coverage_by_source_reader import (
+    DemandCoverageBySourceReader,
+)
 
-__all__ = ["MarketLoadReader", "TotalLoadReader", "PeakValleyLoadReader", "PeakValleyLoadDetailsReader", "MonthlyIndexIndustrialElectricalConsumptionReader"]
+__all__ = ["MarketLoadReader", "TotalLoadReader", "PeakValleyLoadReader", "PeakValleyLoadDetailsReader", "MonthlyIndexIndustrialElectricalConsumptionReader", "DemandCoverageBySourceReader"]
