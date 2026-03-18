@@ -6,8 +6,11 @@ from databricks.labs.community_connector.sources.terna.modules.load.market_load_
 from databricks.labs.community_connector.sources.terna.modules.load.peak_valley_load_reader import (
     PeakValleyLoadReader,
 )
+from databricks.labs.community_connector.sources.terna.modules.load.peak_valley_load_details_reader import (
+    PeakValleyLoadDetailsReader,
+)
 from databricks.labs.community_connector.sources.terna.modules.load.total_load_reader import (
     TotalLoadReader,
 )
 
-__all__ = ["MarketLoadReader", "TotalLoadReader", "PeakValleyLoadReader"]
+__all__ = ["MarketLoadReader", "TotalLoadReader", "PeakValleyLoadReader", "PeakValleyLoadDetailsReader"]

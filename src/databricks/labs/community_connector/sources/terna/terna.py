@@ -18,6 +18,7 @@ from databricks.labs.community_connector.sources.terna.modules.load import (
     MarketLoadReader,
     TotalLoadReader,
     PeakValleyLoadReader,
+    PeakValleyLoadDetailsReader,
 )
 from databricks.labs.community_connector.sources.terna.utils import TernaApiClient
 
@@ -29,7 +30,8 @@ SUPPORTED_TABLES = [
     TotalLoadReader.TOTAL_LOAD_KEY,
     MarketLoadReader.MARKET_LOAD_KEY,
     DailyPricesReader.DAILY_PRICES_KEY,
-    PeakValleyLoadReader.PEAK_VALLEY_KEY
+    PeakValleyLoadReader.PEAK_VALLEY_KEY,
+    PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_KEY
 ]
 
 # =============================================================================
@@ -41,6 +43,7 @@ TABLE_SCHEMAS = {
     "market_load": MarketLoadReader.MARKET_LOAD_SCHEMA,
     "daily_prices": DailyPricesReader.DAILY_PRICES_SCHEMA,
     "peak_valley_load": PeakValleyLoadReader.PEAK_VALLEY_LOAD_SCHEMA,
+    "peak_valley_load_details": PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_SCHEMA,
 }
 
 # =============================================================================
@@ -52,6 +55,7 @@ TABLE_METADATA = {
     "market_load": MarketLoadReader.MARKET_LOAD_METADATA,
     "daily_prices": DailyPricesReader.DAILY_PRICES_METADATA,
     "peak_valley_load": PeakValleyLoadReader.PEAK_VALLEY_LOAD_METADATA,
+    "peak_valley_load_details": PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_METADATA,
 }
 
 class TernaLakeflowConnect(LakeflowConnect):
@@ -74,6 +78,7 @@ class TernaLakeflowConnect(LakeflowConnect):
         self._market_load_reader = MarketLoadReader(self._client)
         self._daily_prices_reader = DailyPricesReader(self._client)
         self._peak_valley_load_reader = PeakValleyLoadReader(self._client)
+        self._peak_valley_load_details_reader = PeakValleyLoadDetailsReader(self._client)
 
     def list_tables(self) -> list[str]:
         """List names of all tables supported by this connector."""
@@ -106,5 +111,6 @@ class TernaLakeflowConnect(LakeflowConnect):
             "market_load": self._market_load_reader.read,
             "daily_prices": self._daily_prices_reader.read,
             "peak_valley_load": self._peak_valley_load_reader.read,
+            "peak_valley_load_details": self._peak_valley_load_details_reader.read,
         }[table_name]
         return reader(start_offset, table_options)
