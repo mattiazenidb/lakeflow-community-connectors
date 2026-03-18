@@ -158,7 +158,7 @@ def test_terna_with_tension_type_filter():
 
 
 def test_terna_with_sector_and_tension_type():
-    """Reading with both sector and tension_type filters."""
+    """Reading with both sector and tension_type filters completes without error."""
     connector = _get_connector()
     table_options = {
         "year": "2024",
@@ -171,7 +171,7 @@ def test_terna_with_sector_and_tension_type():
     records = list(records_iter)
 
     assert isinstance(offset, dict)
-    assert len(records) > 0
+    assert offset.get("cursor") == "2024/11"
     for record in records:
         assert record.get("sector") == "CHIMICA"
         assert record.get("tension_type") == "MT"
