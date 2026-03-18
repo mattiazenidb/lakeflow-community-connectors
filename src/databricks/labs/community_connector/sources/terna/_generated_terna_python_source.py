@@ -521,10 +521,7 @@ def register_lakeflow_source(spark):
         "total_load",
         "market_load",
         "daily_prices",
-        "peak_valley_load",
-        #"actual_generation",
-        #"renewable_generation",
-        #"physical_foreign_flow",
+        "peak_valley_load"
     ]
 
     # =============================================================================
@@ -816,7 +813,7 @@ def register_lakeflow_source(spark):
     MAX_HISTORY_SOLAR_YEARS = 5
 
     DAILY_PRICES_PATH = "/fees/v1.0/daily-prices"
-    ARRAY_KEY = "daily_prices"
+    DAILY_PRICES_KEY = "daily_prices"
 
 
     class DailyPricesReader:
@@ -904,12 +901,12 @@ def register_lakeflow_source(spark):
             for chunk_from, chunk_to in chunks:
                 records.extend(
                     self._client.read_table_chunk(
-                        "daily_prices",
+                        DAILY_PRICES_KEY,
                         DAILY_PRICES_PATH,
                         chunk_from,
                         chunk_to,
                         table_options,
-                        ARRAY_KEY,
+                        DAILY_PRICES_KEY,
                         extra_params=extra if extra else None,
                     )
                 )
@@ -931,7 +928,7 @@ def register_lakeflow_source(spark):
     TERNA_MAX_HISTORY_SOLAR_YEARS = 5
 
     MARKET_LOAD_PATH = "/load/v2.0/market-load"
-    ARRAY_KEY = "market_load"
+    MARKET_LOAD_KEY = "market_load"
 
 
     class MarketLoadReader:
@@ -1025,12 +1022,12 @@ def register_lakeflow_source(spark):
             for chunk_from, chunk_to in chunks:
                 records.extend(
                     self._client.read_table_chunk(
-                        "market_load",
+                        MARKET_LOAD_KEY,
                         MARKET_LOAD_PATH,
                         chunk_from,
                         chunk_to,
                         table_options,
-                        ARRAY_KEY,
+                        MARKET_LOAD_KEY,
                         extra_params=extra if extra else None,
                     )
                 )
@@ -1052,7 +1049,7 @@ def register_lakeflow_source(spark):
     TERNA_MAX_HISTORY_SOLAR_YEARS = 5
 
     PEAK_VALLEY_LOAD_PATH = "/load/v2.0/peak-valley-load"
-    ARRAY_KEY = "peak_valley_load"
+    PEAK_VALLEY_KEY = "peak_valley_load"
 
 
     class PeakValleyLoadReader:
@@ -1120,12 +1117,12 @@ def register_lakeflow_source(spark):
             for chunk_from, chunk_to in chunks:
                 records.extend(
                     self._client.read_table_chunk(
-                        "peak_valley_load",
+                        PEAK_VALLEY_KEY,
                         PEAK_VALLEY_LOAD_PATH,
                         chunk_from,
                         chunk_to,
                         table_options,
-                        ARRAY_KEY,
+                        PEAK_VALLEY_KEY,
                         extra_params=extra if extra else None,
                     )
                 )
@@ -1147,7 +1144,7 @@ def register_lakeflow_source(spark):
     TERNA_MAX_HISTORY_SOLAR_YEARS = 5
 
     TOTAL_LOAD_PATH = "/load/v2.0/total-load"
-    ARRAY_KEY = "total_load"
+    TOTAL_LOAD_KEY = "total_load"
 
 
     class TotalLoadReader:
@@ -1241,12 +1238,12 @@ def register_lakeflow_source(spark):
             for chunk_from, chunk_to in chunks:
                 records.extend(
                     self._client.read_table_chunk(
-                        "total_load",
+                        TOTAL_LOAD_KEY,
                         TOTAL_LOAD_PATH,
                         chunk_from,
                         chunk_to,
                         table_options,
-                        ARRAY_KEY,
+                        TOTAL_LOAD_KEY,
                         extra_params=extra if extra else None,
                     )
                 )

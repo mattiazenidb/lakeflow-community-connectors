@@ -16,7 +16,7 @@ TERNA_MAX_DAYS_PER_REQUEST = 60
 TERNA_MAX_HISTORY_SOLAR_YEARS = 5
 
 MARKET_LOAD_PATH = "/load/v2.0/market-load"
-ARRAY_KEY = "market_load"
+MARKET_LOAD_KEY = "market_load"
 
 
 class MarketLoadReader:
@@ -110,12 +110,12 @@ class MarketLoadReader:
         for chunk_from, chunk_to in chunks:
             records.extend(
                 self._client.read_table_chunk(
-                    "market_load",
+                    MARKET_LOAD_KEY,
                     MARKET_LOAD_PATH,
                     chunk_from,
                     chunk_to,
                     table_options,
-                    ARRAY_KEY,
+                    MARKET_LOAD_KEY,
                     extra_params=extra if extra else None,
                 )
             )

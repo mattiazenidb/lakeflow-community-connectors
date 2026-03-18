@@ -20,7 +20,7 @@ TERNA_MAX_DAYS_PER_REQUEST = 60
 TERNA_MAX_HISTORY_SOLAR_YEARS = 5
 
 PEAK_VALLEY_LOAD_PATH = "/load/v2.0/peak-valley-load"
-ARRAY_KEY = "peak_valley_load"
+PEAK_VALLEY_KEY = "peak_valley_load"
 
 
 class PeakValleyLoadReader:
@@ -88,12 +88,12 @@ class PeakValleyLoadReader:
         for chunk_from, chunk_to in chunks:
             records.extend(
                 self._client.read_table_chunk(
-                    "peak_valley_load",
+                    PEAK_VALLEY_KEY,
                     PEAK_VALLEY_LOAD_PATH,
                     chunk_from,
                     chunk_to,
                     table_options,
-                    ARRAY_KEY,
+                    PEAK_VALLEY_KEY,
                     extra_params=extra if extra else None,
                 )
             )

@@ -183,3 +183,22 @@ def test_terna_not_full_start_end_dates():
     assert isinstance(offset, dict)
     assert len(records) == 0 
     assert offset.get("cursor") == "29/02/2024"
+
+
+def test_terna_partial_start_end_dates():
+    config_dir = Path(__file__).parent / "configs"
+    config = load_config(config_dir / "dev_config.json")
+
+    if not config.get("client_id") or not config.get("client_secret"):
+        pytest.skip("Terna API credentials not set in dev_config.json")
+
+    connector = TernaLakeflowConnect(config)
+    table_options = {"date_from": "01/03/2024", "date_to": "17/03/2024"}
+    start_offset = {"cursor": "05/03/2024"}
+
+    records_iter, offset = connector.read_table("total_load", start_offset, table_options)
+    records = list(records_iter)
+
+    assert isinstance(offset, dict)
+    assert len(records) > 0 
+    assert offset.get("cursor") == "17/03/2024"

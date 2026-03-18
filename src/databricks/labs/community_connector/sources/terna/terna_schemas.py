@@ -18,10 +18,7 @@ SUPPORTED_TABLES = [
     "total_load",
     "market_load",
     "daily_prices",
-    "peak_valley_load",
-    #"actual_generation",
-    #"renewable_generation",
-    #"physical_foreign_flow",
+    "peak_valley_load"
 ]
 
 # =============================================================================
