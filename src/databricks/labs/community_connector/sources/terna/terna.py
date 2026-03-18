@@ -20,6 +20,7 @@ from databricks.labs.community_connector.sources.terna.modules.load import (
     PeakValleyLoadReader,
     PeakValleyLoadDetailsReader,
     MonthlyIndexIndustrialElectricalConsumptionReader,
+    DemandCoverageBySourceReader,
 )
 from databricks.labs.community_connector.sources.terna.utils import TernaApiClient
 
@@ -34,6 +35,7 @@ SUPPORTED_TABLES = [
     PeakValleyLoadReader.PEAK_VALLEY_KEY,
     PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_KEY,
     MonthlyIndexIndustrialElectricalConsumptionReader.MONTHLY_INDEX_INDUSTRIAL_ELECTRICAL_CONSUMPTION_KEY,
+    DemandCoverageBySourceReader.DEMAND_COVERAGE_BY_SOURCE_KEY,
 ]
 
 # =============================================================================
@@ -47,6 +49,7 @@ TABLE_SCHEMAS = {
     "peak_valley_load": PeakValleyLoadReader.PEAK_VALLEY_LOAD_SCHEMA,
     "peak_valley_load_details": PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_SCHEMA,
     "monthly_index_industrial_electrical_consumption": MonthlyIndexIndustrialElectricalConsumptionReader.MONTHLY_INDEX_INDUSTRIAL_ELECTRICAL_CONSUMPTION_SCHEMA,
+    "demand_coverage_by_source": DemandCoverageBySourceReader.DEMAND_COVERAGE_BY_SOURCE_SCHEMA,
 }
 
 # =============================================================================
@@ -60,6 +63,7 @@ TABLE_METADATA = {
     "peak_valley_load": PeakValleyLoadReader.PEAK_VALLEY_LOAD_METADATA,
     "peak_valley_load_details": PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_METADATA,
     "monthly_index_industrial_electrical_consumption": MonthlyIndexIndustrialElectricalConsumptionReader.MONTHLY_INDEX_INDUSTRIAL_ELECTRICAL_CONSUMPTION_METADATA,
+    "demand_coverage_by_source": DemandCoverageBySourceReader.DEMAND_COVERAGE_BY_SOURCE_METADATA,
 }
 
 class TernaLakeflowConnect(LakeflowConnect):
@@ -84,6 +88,7 @@ class TernaLakeflowConnect(LakeflowConnect):
         self._peak_valley_load_reader = PeakValleyLoadReader(self._client)
         self._peak_valley_load_details_reader = PeakValleyLoadDetailsReader(self._client)
         self._monthly_index_industrial_electrical_consumption_reader = MonthlyIndexIndustrialElectricalConsumptionReader(self._client)
+        self._demand_coverage_by_source_reader = DemandCoverageBySourceReader(self._client)
 
     def list_tables(self) -> list[str]:
         """List names of all tables supported by this connector."""
@@ -118,5 +123,6 @@ class TernaLakeflowConnect(LakeflowConnect):
             "peak_valley_load": self._peak_valley_load_reader.read,
             "peak_valley_load_details": self._peak_valley_load_details_reader.read,
             "monthly_index_industrial_electrical_consumption": self._monthly_index_industrial_electrical_consumption_reader.read,
+            "demand_coverage_by_source": self._demand_coverage_by_source_reader.read,
         }[table_name]
         return reader(start_offset, table_options)
