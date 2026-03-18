@@ -936,6 +936,360 @@ def register_lakeflow_source(spark):
 
 
     ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/electrical_energy_by_sector_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    ELECTRICAL_ENERGY_BY_SECTOR_PATH = "/load/v2.0/electrical-energy-by-sector"
+
+
+    class ElectricalEnergyBySectorReader:
+        """Reads electrical_energy_by_sector data from the Terna Public API for a single year."""
+
+        ELECTRICAL_ENERGY_BY_SECTOR_SECTORS = [
+            "Agricoltura",
+            "Domestico",
+            "Industria",
+            "Servizi",
+        ]
+
+        ELECTRICAL_ENERGY_BY_SECTOR_KEY = "electrical_energy_by_sector"
+
+        ELECTRICAL_ENERGY_BY_SECTOR_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("region", StringType(), True),
+                StructField("province", StringType(), True),
+                StructField("sector", StringType(), True),
+                StructField("consumption_GWh", StringType(), True),
+            ]
+        )
+
+        ELECTRICAL_ENERGY_BY_SECTOR_METADATA = {
+            "primary_keys": ["year", "region", "province", "sector"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read electrical_energy_by_sector records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("electrical_energy_by_sector requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"electrical_energy_by_sector: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            raw_sector = table_options.get("sector")
+            if raw_sector is not None:
+                if raw_sector not in self.ELECTRICAL_ENERGY_BY_SECTOR_SECTORS:
+                    raise ValueError(
+                        f"Terna connector: Invalid sector value '{raw_sector}'. "
+                        f"Must be one of {', '.join(self.ELECTRICAL_ENERGY_BY_SECTOR_SECTORS)}"
+                    )
+                params["sector"] = raw_sector
+
+            raw_region = table_options.get("region")
+            if raw_region is not None:
+                params["region"] = raw_region
+
+            raw_province = table_options.get("province")
+            if raw_province is not None:
+                params["province"] = raw_province
+
+            logger.debug("Querying electrical_energy_by_sector for year=%s params=%s", year, params)
+            resp = self._client.request("GET", ELECTRICAL_ENERGY_BY_SECTOR_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for electrical_energy_by_sector: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get(self.ELECTRICAL_ENERGY_BY_SECTOR_KEY)
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
+
+
+    ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/electrical_energy_by_type_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    ELECTRICAL_ENERGY_BY_TYPE_PATH = "/load/v2.0/electrical-energy-by-type"
+
+
+    class ElectricalEnergyByTypeReader:
+        """Reads electrical_energy_by_type data from the Terna Public API for a single year."""
+
+        ELECTRICAL_ENERGY_BY_TYPE_TYPES = [
+            "Fonti rinnovabili",
+            "Fonti tradizionali",
+            "Saldo import/export",
+        ]
+
+        ELECTRICAL_ENERGY_BY_TYPE_KEY = "electrical_energy_by_type"
+
+        ELECTRICAL_ENERGY_BY_TYPE_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("region", StringType(), True),
+                StructField("type", StringType(), True),
+                StructField("demand_GWh", StringType(), True),
+            ]
+        )
+
+        ELECTRICAL_ENERGY_BY_TYPE_METADATA = {
+            "primary_keys": ["year", "region", "type"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read electrical_energy_by_type records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("electrical_energy_by_type requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"electrical_energy_by_type: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            raw_type = table_options.get("type")
+            if raw_type is not None:
+                if raw_type not in self.ELECTRICAL_ENERGY_BY_TYPE_TYPES:
+                    raise ValueError(
+                        f"Terna connector: Invalid type value '{raw_type}'. "
+                        f"Must be one of {', '.join(self.ELECTRICAL_ENERGY_BY_TYPE_TYPES)}"
+                    )
+                params["type"] = raw_type
+
+            logger.debug("Querying electrical_energy_by_type for year=%s params=%s", year, params)
+            resp = self._client.request("GET", ELECTRICAL_ENERGY_BY_TYPE_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for electrical_energy_by_type: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get(self.ELECTRICAL_ENERGY_BY_TYPE_KEY)
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
+
+
+    ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/electrical_energy_in_italy_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    ELECTRICAL_ENERGY_IN_ITALY_PATH = "/load/v2.0/electrical-energy-in-italy"
+
+
+    class ElectricalEnergyInItalyReader:
+        """Reads electrical_energy_in_italy data from the Terna Public API for a single year."""
+
+        ELECTRICAL_ENERGY_IN_ITALY_KEY = "electrical_energy_in_italy"
+
+        ELECTRICAL_ENERGY_IN_ITALY_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("month", StringType(), True),
+                StructField("demand_GWh", StringType(), True),
+            ]
+        )
+
+        ELECTRICAL_ENERGY_IN_ITALY_METADATA = {
+            "primary_keys": ["year", "month"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read electrical_energy_in_italy records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("electrical_energy_in_italy requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"electrical_energy_in_italy: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            raw_month = table_options.get("month")
+            if raw_month is not None:
+                params["month"] = raw_month
+
+            logger.debug("Querying electrical_energy_in_italy for year=%s params=%s", year, params)
+            resp = self._client.request("GET", ELECTRICAL_ENERGY_IN_ITALY_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for electrical_energy_in_italy: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get(self.ELECTRICAL_ENERGY_IN_ITALY_KEY)
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
+
+
+    ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/industry_sector_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    INDUSTRY_SECTOR_PATH = "/load/v2.0/industry-sector"
+
+
+    class IndustrySectorReader:
+        """Reads industry_sector data from the Terna Public API for a single year."""
+
+        INDUSTRY_SECTOR_KEY = "industry_sector"
+
+        INDUSTRY_SECTOR_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("region", StringType(), True),
+                StructField("province", StringType(), True),
+                StructField("activity", StringType(), True),
+                StructField("class", StringType(), True),
+                StructField("consumption_GWh", StringType(), True),
+            ]
+        )
+
+        INDUSTRY_SECTOR_METADATA = {
+            "primary_keys": ["year", "region", "province", "activity", "class"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read industry_sector records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("industry_sector requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"industry_sector: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            for opt in ("region", "province", "activity", "class"):
+                val = table_options.get(opt)
+                if val is not None:
+                    params[opt] = val
+
+            logger.debug("Querying industry_sector for year=%s params=%s", year, params)
+            resp = self._client.request("GET", INDUSTRY_SECTOR_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for industry_sector: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get(self.INDUSTRY_SECTOR_KEY)
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
+
+
+    ########################################################
     # src/databricks/labs/community_connector/sources/terna/modules/load/market_load_reader.py
     ########################################################
 
@@ -1071,6 +1425,106 @@ def register_lakeflow_source(spark):
             return iter(records), {
                 "cursor": self._client.format_cursor(chunks[-1][1])
             }
+
+
+    ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/market_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    MARKET_PATH = "/load/v2.0/market"
+
+
+    class MarketStatReader:
+        """Reads market (load statistics) data from the Terna Public API for a single year."""
+
+        MARKET_STAT_MARKETS = [
+            "Autoconsumo",
+            "Mercato libero",
+            "Mercato tutelato",
+        ]
+
+        MARKET_STAT_KEY = "market_stat"
+
+        MARKET_STAT_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("region", StringType(), True),
+                StructField("province", StringType(), True),
+                StructField("market", StringType(), True),
+                StructField("consumption_GWh", StringType(), True),
+            ]
+        )
+
+        MARKET_STAT_METADATA = {
+            "primary_keys": ["year", "region", "province", "market"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read market (load stat) records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("market_stat requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"market_stat: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            raw_market = table_options.get("market")
+            if raw_market is not None:
+                if raw_market not in self.MARKET_STAT_MARKETS:
+                    raise ValueError(
+                        f"Terna connector: Invalid market value '{raw_market}'. "
+                        f"Must be one of {', '.join(self.MARKET_STAT_MARKETS)}"
+                    )
+                params["Market"] = raw_market
+
+            raw_region = table_options.get("region")
+            if raw_region is not None:
+                params["region"] = raw_region
+
+            raw_province = table_options.get("province")
+            if raw_province is not None:
+                params["province"] = raw_province
+
+            logger.debug("Querying market_stat for year=%s params=%s", year, params)
+            resp = self._client.request("GET", MARKET_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for market_stat: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get("market")
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
 
 
     ########################################################
@@ -1478,6 +1932,89 @@ def register_lakeflow_source(spark):
 
 
     ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/services_sector_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    SERVICES_SECTOR_PATH = "/load/v2.0/services-sector"
+
+
+    class ServicesSectorReader:
+        """Reads services_sector data from the Terna Public API for a single year."""
+
+        SERVICES_SECTOR_KEY = "services_sector"
+
+        SERVICES_SECTOR_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("region", StringType(), True),
+                StructField("province", StringType(), True),
+                StructField("activity", StringType(), True),
+                StructField("class", StringType(), True),
+                StructField("consumption_GWh", StringType(), True),
+            ]
+        )
+
+        SERVICES_SECTOR_METADATA = {
+            "primary_keys": ["year", "region", "province", "activity", "class"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read services_sector records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("services_sector requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"services_sector: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            for opt in ("region", "province", "activity", "class"):
+                val = table_options.get(opt)
+                if val is not None:
+                    params[opt] = val
+
+            logger.debug("Querying services_sector for year=%s params=%s", year, params)
+            resp = self._client.request("GET", SERVICES_SECTOR_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for services_sector: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get(self.SERVICES_SECTOR_KEY)
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
+
+
+    ########################################################
     # src/databricks/labs/community_connector/sources/terna/modules/load/total_load_reader.py
     ########################################################
 
@@ -1616,6 +2153,90 @@ def register_lakeflow_source(spark):
 
 
     ########################################################
+    # src/databricks/labs/community_connector/sources/terna/modules/load/total_reader.py
+    ########################################################
+
+    logger = logging.getLogger(__name__)
+
+    TERNA_MAX_HISTORY_SOLAR_YEARS = 5
+
+    TOTAL_PATH = "/load/v2.0/total"
+
+
+    class TotalStatReader:
+        """Reads total (load statistics) data from the Terna Public API for a single year."""
+
+        TOTAL_STAT_KEY = "total_stat"
+
+        TOTAL_STAT_SCHEMA = StructType(
+            [
+                StructField("year", StringType(), True),
+                StructField("region", StringType(), True),
+                StructField("province", StringType(), True),
+                StructField("sector", StringType(), True),
+                StructField("activity", StringType(), True),
+                StructField("class", StringType(), True),
+                StructField("consumption_GWh", StringType(), True),
+            ]
+        )
+
+        TOTAL_STAT_METADATA = {
+            "primary_keys": ["year", "region", "province", "sector", "activity", "class"],
+            "cursor_field": "year",
+            "ingestion_type": "append",
+        }
+
+        def __init__(self, client: TernaApiClient) -> None:
+            self._client = client
+
+        def read(
+            self,
+            start_offset: dict | None,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read total (load stat) records for a single year."""
+            logger.info("Table options: %s", table_options)
+
+            year_str = table_options.get("year")
+            if year_str is None:
+                raise ValueError("total_stat requires 'year'")
+
+            try:
+                year = int(year_str)
+            except ValueError:
+                raise ValueError(
+                    f"total_stat: 'year' must be an integer, got '{year_str}'"
+                )
+
+            now = datetime.now(timezone.utc)
+            min_year = now.year - TERNA_MAX_HISTORY_SOLAR_YEARS
+            if year < min_year:
+                raise ValueError(
+                    f"Terna connector: 'year' must be within the last "
+                    f"{TERNA_MAX_HISTORY_SOLAR_YEARS} solar years, not earlier than {min_year}"
+                )
+
+            params: dict[str, str] = {"year": str(year)}
+
+            for opt in ("region", "province", "sector", "activity", "class"):
+                val = table_options.get(opt)
+                if val is not None:
+                    params[opt] = val
+
+            logger.debug("Querying total_stat for year=%s params=%s", year, params)
+            resp = self._client.request("GET", TOTAL_PATH, params=params)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Terna API error for total_stat: {resp.status_code} {resp.text}"
+                )
+            body = resp.json()
+            data = body.get("total")
+            records: list[dict] = data if isinstance(data, list) else []
+
+            return iter(records), {"cursor": str(year)}
+
+
+    ########################################################
     # src/databricks/labs/community_connector/sources/terna/terna.py
     ########################################################
 
@@ -1627,6 +2248,13 @@ def register_lakeflow_source(spark):
         PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_KEY,
         MonthlyIndexIndustrialElectricalConsumptionReader.MONTHLY_INDEX_INDUSTRIAL_ELECTRICAL_CONSUMPTION_KEY,
         DemandCoverageBySourceReader.DEMAND_COVERAGE_BY_SOURCE_KEY,
+        ElectricalEnergyInItalyReader.ELECTRICAL_ENERGY_IN_ITALY_KEY,
+        ElectricalEnergyByTypeReader.ELECTRICAL_ENERGY_BY_TYPE_KEY,
+        ElectricalEnergyBySectorReader.ELECTRICAL_ENERGY_BY_SECTOR_KEY,
+        IndustrySectorReader.INDUSTRY_SECTOR_KEY,
+        MarketStatReader.MARKET_STAT_KEY,
+        TotalStatReader.TOTAL_STAT_KEY,
+        ServicesSectorReader.SERVICES_SECTOR_KEY,
     ]
 
     # =============================================================================
@@ -1641,6 +2269,13 @@ def register_lakeflow_source(spark):
         "peak_valley_load_details": PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_SCHEMA,
         "monthly_index_industrial_electrical_consumption": MonthlyIndexIndustrialElectricalConsumptionReader.MONTHLY_INDEX_INDUSTRIAL_ELECTRICAL_CONSUMPTION_SCHEMA,
         "demand_coverage_by_source": DemandCoverageBySourceReader.DEMAND_COVERAGE_BY_SOURCE_SCHEMA,
+        "electrical_energy_in_italy": ElectricalEnergyInItalyReader.ELECTRICAL_ENERGY_IN_ITALY_SCHEMA,
+        "electrical_energy_by_type": ElectricalEnergyByTypeReader.ELECTRICAL_ENERGY_BY_TYPE_SCHEMA,
+        "electrical_energy_by_sector": ElectricalEnergyBySectorReader.ELECTRICAL_ENERGY_BY_SECTOR_SCHEMA,
+        "industry_sector": IndustrySectorReader.INDUSTRY_SECTOR_SCHEMA,
+        "market_stat": MarketStatReader.MARKET_STAT_SCHEMA,
+        "total_stat": TotalStatReader.TOTAL_STAT_SCHEMA,
+        "services_sector": ServicesSectorReader.SERVICES_SECTOR_SCHEMA,
     }
 
     # =============================================================================
@@ -1655,6 +2290,13 @@ def register_lakeflow_source(spark):
         "peak_valley_load_details": PeakValleyLoadDetailsReader.PEAK_VALLEY_LOAD_DETAILS_METADATA,
         "monthly_index_industrial_electrical_consumption": MonthlyIndexIndustrialElectricalConsumptionReader.MONTHLY_INDEX_INDUSTRIAL_ELECTRICAL_CONSUMPTION_METADATA,
         "demand_coverage_by_source": DemandCoverageBySourceReader.DEMAND_COVERAGE_BY_SOURCE_METADATA,
+        "electrical_energy_in_italy": ElectricalEnergyInItalyReader.ELECTRICAL_ENERGY_IN_ITALY_METADATA,
+        "electrical_energy_by_type": ElectricalEnergyByTypeReader.ELECTRICAL_ENERGY_BY_TYPE_METADATA,
+        "electrical_energy_by_sector": ElectricalEnergyBySectorReader.ELECTRICAL_ENERGY_BY_SECTOR_METADATA,
+        "industry_sector": IndustrySectorReader.INDUSTRY_SECTOR_METADATA,
+        "market_stat": MarketStatReader.MARKET_STAT_METADATA,
+        "total_stat": TotalStatReader.TOTAL_STAT_METADATA,
+        "services_sector": ServicesSectorReader.SERVICES_SECTOR_METADATA,
     }
 
     class TernaLakeflowConnect(LakeflowConnect):
@@ -1680,6 +2322,13 @@ def register_lakeflow_source(spark):
             self._peak_valley_load_details_reader = PeakValleyLoadDetailsReader(self._client)
             self._monthly_index_industrial_electrical_consumption_reader = MonthlyIndexIndustrialElectricalConsumptionReader(self._client)
             self._demand_coverage_by_source_reader = DemandCoverageBySourceReader(self._client)
+            self._electrical_energy_in_italy_reader = ElectricalEnergyInItalyReader(self._client)
+            self._electrical_energy_by_type_reader = ElectricalEnergyByTypeReader(self._client)
+            self._electrical_energy_by_sector_reader = ElectricalEnergyBySectorReader(self._client)
+            self._industry_sector_reader = IndustrySectorReader(self._client)
+            self._market_stat_reader = MarketStatReader(self._client)
+            self._total_stat_reader = TotalStatReader(self._client)
+            self._services_sector_reader = ServicesSectorReader(self._client)
 
         def list_tables(self) -> list[str]:
             """List names of all tables supported by this connector."""
@@ -1715,6 +2364,13 @@ def register_lakeflow_source(spark):
                 "peak_valley_load_details": self._peak_valley_load_details_reader.read,
                 "monthly_index_industrial_electrical_consumption": self._monthly_index_industrial_electrical_consumption_reader.read,
                 "demand_coverage_by_source": self._demand_coverage_by_source_reader.read,
+                "electrical_energy_in_italy": self._electrical_energy_in_italy_reader.read,
+                "electrical_energy_by_type": self._electrical_energy_by_type_reader.read,
+                "electrical_energy_by_sector": self._electrical_energy_by_sector_reader.read,
+                "industry_sector": self._industry_sector_reader.read,
+                "market_stat": self._market_stat_reader.read,
+                "total_stat": self._total_stat_reader.read,
+                "services_sector": self._services_sector_reader.read,
             }[table_name]
             return reader(start_offset, table_options)
 
