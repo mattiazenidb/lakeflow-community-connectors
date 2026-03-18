@@ -1,7 +1,5 @@
 """Tests for the monthly_index_industrial_electrical_consumption table reader."""
 
-import calendar
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -36,28 +34,74 @@ def test_terna_init_raises_without_credentials():
         TernaLakeflowConnect({"client_secret": "y"})
 
 
-def test_terna_full_missing_date_from():
-    """When date_from is missing, connector raises ValueError."""
+def test_terna_missing_year():
+    """When year is missing, connector raises ValueError."""
     connector = _get_connector()
-    table_options = {"date_to": "29/02/2024"}
+    table_options = {"month": "11"}
 
-    with pytest.raises(ValueError, match="monthly_index_industrial_electrical_consumption requires 'date_from'"):
+    with pytest.raises(ValueError, match="requires 'year'"):
         connector.read_table(TABLE, None, table_options)
 
 
-def test_terna_beyond_five_years_limit():
-    """date_from older than 5 solar years raises ValueError."""
+def test_terna_missing_month():
+    """When month is missing, connector raises ValueError."""
     connector = _get_connector()
-    table_options = {"date_from": "31/12/2020"}
+    table_options = {"year": "2024"}
 
-    with pytest.raises(ValueError, match="Terna connector: 'date_from' must be within the last 5 solar years, not sooner than 01/01/2021"):
+    with pytest.raises(ValueError, match="requires 'month'"):
+        connector.read_table(TABLE, None, table_options)
+
+
+def test_terna_missing_both():
+    """When both year and month are missing, connector raises ValueError."""
+    connector = _get_connector()
+
+    with pytest.raises(ValueError, match="requires 'year'"):
+        connector.read_table(TABLE, None, {})
+
+
+def test_terna_invalid_year_format():
+    """Non-integer year raises ValueError."""
+    connector = _get_connector()
+    table_options = {"year": "abc", "month": "11"}
+
+    with pytest.raises(ValueError, match="'year' must be an integer"):
+        connector.read_table(TABLE, None, table_options)
+
+
+def test_terna_invalid_month_format():
+    """Non-integer month raises ValueError."""
+    connector = _get_connector()
+    table_options = {"year": "2024", "month": "abc"}
+
+    with pytest.raises(ValueError, match="'month' must be an integer"):
+        connector.read_table(TABLE, None, table_options)
+
+
+def test_terna_month_out_of_range():
+    """Month outside 1-12 raises ValueError."""
+    connector = _get_connector()
+
+    with pytest.raises(ValueError, match="'month' must be between 1 and 12"):
+        connector.read_table(TABLE, None, {"year": "2024", "month": "13"})
+
+    with pytest.raises(ValueError, match="'month' must be between 1 and 12"):
+        connector.read_table(TABLE, None, {"year": "2024", "month": "0"})
+
+
+def test_terna_year_beyond_history_limit():
+    """Year older than 5 solar years raises ValueError."""
+    connector = _get_connector()
+    table_options = {"year": "2020", "month": "11"}
+
+    with pytest.raises(ValueError, match="'year' must be within the last 5 solar years"):
         connector.read_table(TABLE, None, table_options)
 
 
 def test_terna_invalid_sector():
     """An invalid sector value raises ValueError."""
     connector = _get_connector()
-    table_options = {"date_from": "01/02/2024", "date_to": "28/02/2024", "sectors": "INVALID_SECTOR"}
+    table_options = {"year": "2024", "month": "11", "sectors": "INVALID_SECTOR"}
 
     with pytest.raises(ValueError, match="Invalid sector value INVALID_SECTOR"):
         connector.read_table(TABLE, None, table_options)
@@ -66,88 +110,29 @@ def test_terna_invalid_sector():
 def test_terna_invalid_tension_type():
     """An invalid tension_type value raises ValueError."""
     connector = _get_connector()
-    table_options = {"date_from": "01/02/2024", "date_to": "28/02/2024", "tension_types": "BT"}
+    table_options = {"year": "2024", "month": "11", "tension_types": "BT"}
 
     with pytest.raises(ValueError, match="Invalid tension_type value BT"):
         connector.read_table(TABLE, None, table_options)
 
 
-def test_terna_cdc_empty_because_same_date():
-    """When date_from == date_to, returns empty with cursor == date_from."""
+def test_terna_read_single_month():
+    """Reading a known historical month returns data."""
     connector = _get_connector()
-    date_from = datetime.now().strftime("%d/%m/%Y")
-    table_options = {"date_from": date_from}
-
-    records_iter, offset = connector.read_table(TABLE, None, table_options)
-    records = list(records_iter)
-
-    assert len(records) == 0
-    assert offset.get("cursor") == date_from
-
-
-def test_terna_full_single_month():
-    """Full read of a single known historical month returns data."""
-    connector = _get_connector()
-    table_options = {"date_from": "01/11/2024", "date_to": "30/11/2024"}
+    table_options = {"year": "2024", "month": "11"}
 
     records_iter, offset = connector.read_table(TABLE, None, table_options)
     records = list(records_iter)
 
     assert isinstance(offset, dict)
     assert len(records) > 0
-    assert offset.get("cursor") == "30/11/2024"
-
-
-def test_terna_full_multi_month():
-    """Reading a range spanning multiple months returns data and cursor at end of last month."""
-    connector = _get_connector()
-    table_options = {"date_from": "01/10/2024", "date_to": "15/12/2024"}
-
-    records_iter, offset = connector.read_table(TABLE, None, table_options)
-    records = list(records_iter)
-
-    assert isinstance(offset, dict)
-    assert len(records) > 0
-    assert offset.get("cursor") == "31/12/2024"
-
-
-def test_terna_not_full_cursor_at_date_to():
-    """When cursor == date_to, returns empty (already fully read)."""
-    connector = _get_connector()
-    table_options = {"date_from": "01/11/2024", "date_to": "30/11/2024"}
-    start_offset = {"cursor": "30/11/2024"}
-
-    records_iter, offset = connector.read_table(TABLE, start_offset, table_options)
-    records = list(records_iter)
-
-    assert isinstance(offset, dict)
-    assert len(records) == 0
-    assert offset.get("cursor") == "30/11/2024"
-
-
-def test_terna_cdc_default_date_to():
-    """When date_to is omitted, defaults to now; cursor set to end of current month."""
-    connector = _get_connector()
-    now = datetime.now()
-    date_from = (now - timedelta(days=2)).strftime("%d/%m/%Y")
-    table_options = {"date_from": date_from}
-
-    records_iter, offset = connector.read_table(TABLE, None, table_options)
-    records = list(records_iter)
-
-    last_day = calendar.monthrange(now.year, now.month)[1]
-    expected_cursor = f"{last_day:02d}/{now.month:02d}/{now.year}"
-    assert offset.get("cursor") == expected_cursor
+    assert offset.get("cursor") == "2024/11"
 
 
 def test_terna_with_sector_filter():
-    """Reading with a sector filter returns data."""
+    """Reading with a sector filter returns only that sector."""
     connector = _get_connector()
-    table_options = {
-        "date_from": "01/11/2024",
-        "date_to": "30/11/2024",
-        "sectors": "ALIMENTARE",
-    }
+    table_options = {"year": "2024", "month": "11", "sectors": "ALIMENTARE"}
 
     records_iter, offset = connector.read_table(TABLE, None, table_options)
     records = list(records_iter)
@@ -159,13 +144,9 @@ def test_terna_with_sector_filter():
 
 
 def test_terna_with_tension_type_filter():
-    """Reading with a tension_type filter returns data."""
+    """Reading with a tension_type filter returns only that tension type."""
     connector = _get_connector()
-    table_options = {
-        "date_from": "01/11/2024",
-        "date_to": "30/11/2024",
-        "tension_types": "AT",
-    }
+    table_options = {"year": "2024", "month": "11", "tension_types": "AT"}
 
     records_iter, offset = connector.read_table(TABLE, None, table_options)
     records = list(records_iter)
@@ -176,17 +157,32 @@ def test_terna_with_tension_type_filter():
         assert record.get("tension_type") == "AT"
 
 
-def test_terna_with_multiple_sectors():
-    """Reading with multiple comma-separated sectors completes without error."""
+def test_terna_with_sector_and_tension_type():
+    """Reading with both sector and tension_type filters."""
     connector = _get_connector()
     table_options = {
-        "date_from": "01/11/2024",
-        "date_to": "30/11/2024",
-        "sectors": "ALIMENTARE,CHIMICA",
+        "year": "2024",
+        "month": "11",
+        "sectors": "CHIMICA",
+        "tension_types": "MT",
     }
 
     records_iter, offset = connector.read_table(TABLE, None, table_options)
     records = list(records_iter)
 
     assert isinstance(offset, dict)
-    assert offset.get("cursor") == "30/11/2024"
+    assert len(records) > 0
+    for record in records:
+        assert record.get("sector") == "CHIMICA"
+        assert record.get("tension_type") == "MT"
+
+
+def test_terna_cursor_format():
+    """Cursor is formatted as year/month (zero-padded)."""
+    connector = _get_connector()
+    table_options = {"year": "2024", "month": "2"}
+
+    records_iter, offset = connector.read_table(TABLE, None, table_options)
+    list(records_iter)
+
+    assert offset.get("cursor") == "2024/02"
