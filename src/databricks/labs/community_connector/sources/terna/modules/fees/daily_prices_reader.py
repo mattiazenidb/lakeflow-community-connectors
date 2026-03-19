@@ -108,7 +108,7 @@ class DailyPricesReader:
             return iter([]), {"cursor": self._client.format_cursor(date_to)}
 
         if start_offset and start_offset.get("cursor"):
-            date_from = self._client.string_to_datetime(start_offset["cursor"])
+            date_from = self._client.string_to_datetime(start_offset["cursor"]) + timedelta(days=1)
 
         chunks: list[tuple[datetime, datetime]] = []
         current_start = date_from
@@ -119,6 +119,9 @@ class DailyPricesReader:
             )
             chunks.append((current_start, current_end))
             current_start = current_end + timedelta(days=1)
+
+        if not chunks:
+            return iter([]), {"cursor": self._client.format_cursor(date_to)}
 
         if len(chunks) > 1:
             logger.info(

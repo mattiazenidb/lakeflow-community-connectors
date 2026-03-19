@@ -250,3 +250,52 @@ def test_terna_daily_prices_read_table_metadata():
     assert metadata["primary_keys"] == ["reference_date", "macrozone"]
     assert metadata["cursor_field"] == "reference_date"
     assert metadata["ingestion_type"] == "append"
+
+def test_terna_daily_prices_full_start_end_dates_adhoc():
+    """Read daily_prices with date_from and date_to; cursor is date_to."""
+    config_dir = Path(__file__).parent / "configs"
+    config = load_config(config_dir / "dev_config.json")
+
+    if not config.get("client_id") or not config.get("client_secret"):
+        pytest.skip("Terna API credentials not set in dev_config.json")
+
+    connector = TernaLakeflowConnect(config)
+    table_options = {"date_from": "01/03/2024", "date_to": "17/03/2024", "data_types": "Orario"}
+    start_offset = None
+
+    try:
+        records_iter, offset = connector.read_table("daily_prices", start_offset, table_options)
+        records = list(records_iter)
+    except (requests.RequestException, OSError) as e:
+        pytest.skip(f"Terna API unreachable: {e}")
+
+    logger.info(f"Records: {len(records)}")
+    assert isinstance(offset, dict)
+    assert offset.get("cursor") == "17/03/2024"
+
+def test_terna_daily_prices_full_start_end_dates_adhoc_next_round():
+    """Read daily_prices with date_from and date_to; cursor is date_to."""
+    config_dir = Path(__file__).parent / "configs"
+    config = load_config(config_dir / "dev_config.json")
+
+    if not config.get("client_id") or not config.get("client_secret"):
+        pytest.skip("Terna API credentials not set in dev_config.json")
+
+    connector = TernaLakeflowConnect(config)
+    table_options = {"date_from": "01/03/2024", "date_to": "19/03/2024", "data_types": "Orario"}
+    start_offset = {"cursor": "17/03/2024"}
+
+    try:
+        records_iter, offset = connector.read_table("daily_prices", start_offset, table_options)
+        records = list(records_iter)
+    except (requests.RequestException, OSError) as e:
+        pytest.skip(f"Terna API unreachable: {e}")
+
+    #for record in records:
+    #    logger.info(f"reference_date: {record['date']}")
+
+    logger.info(f"Records: {len(records)}")
+    logger.info(set([record['reference_date'][:10] for record in records]))
+
+    assert isinstance(offset, dict)
+    assert offset.get("cursor") == "19/03/2024"
