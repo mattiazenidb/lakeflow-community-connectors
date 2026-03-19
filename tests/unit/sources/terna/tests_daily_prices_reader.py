@@ -260,7 +260,7 @@ def test_terna_daily_prices_full_start_end_dates_adhoc():
         pytest.skip("Terna API credentials not set in dev_config.json")
 
     connector = TernaLakeflowConnect(config)
-    table_options = {"date_from": "01/03/2024", "date_to": "17/03/2024", "data_types": "Orario"}
+    table_options = {"date_from": "17/03/2024", "date_to": "19/03/2024", "data_types": "Orario"}
     start_offset = None
 
     try:
@@ -269,9 +269,14 @@ def test_terna_daily_prices_full_start_end_dates_adhoc():
     except (requests.RequestException, OSError) as e:
         pytest.skip(f"Terna API unreachable: {e}")
 
+    resulting_dates = set([record['reference_date'][:10] for record in records])
+
     logger.info(f"Records: {len(records)}")
+    logger.info(resulting_dates)
+
+    assert resulting_dates == {"2024-03-17", "2024-03-18", "2024-03-19"}
     assert isinstance(offset, dict)
-    assert offset.get("cursor") == "17/03/2024"
+    assert offset.get("cursor") == "19/03/2024"
 
 def test_terna_daily_prices_full_start_end_dates_adhoc_next_round():
     """Read daily_prices with date_from and date_to; cursor is date_to."""
@@ -282,7 +287,7 @@ def test_terna_daily_prices_full_start_end_dates_adhoc_next_round():
         pytest.skip("Terna API credentials not set in dev_config.json")
 
     connector = TernaLakeflowConnect(config)
-    table_options = {"date_from": "01/03/2024", "date_to": "19/03/2024", "data_types": "Orario"}
+    table_options = {"date_from": "17/03/2024", "date_to": "19/03/2024", "data_types": "Orario"}
     start_offset = {"cursor": "17/03/2024"}
 
     try:
@@ -291,11 +296,11 @@ def test_terna_daily_prices_full_start_end_dates_adhoc_next_round():
     except (requests.RequestException, OSError) as e:
         pytest.skip(f"Terna API unreachable: {e}")
 
-    #for record in records:
-    #    logger.info(f"reference_date: {record['date']}")
+    resulting_dates = set([record['reference_date'][:10] for record in records])
 
     logger.info(f"Records: {len(records)}")
-    logger.info(set([record['reference_date'][:10] for record in records]))
+    logger.info(resulting_dates)
 
+    assert resulting_dates == {"2024-03-18", "2024-03-19"}
     assert isinstance(offset, dict)
     assert offset.get("cursor") == "19/03/2024"
